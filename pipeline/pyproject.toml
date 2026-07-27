@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "plpipe"
+version = "0.1.0"
+description = "유튜브 플레이리스트 영상 자동화 파이프라인 (Suno/Midjourney → After Effects → mp4)"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+plpipe = "plpipe.cli:main"
+
+[tool.setuptools]
+packages = ["plpipe", "plpipe.providers"]
+
+[tool.setuptools.package-data]
+plpipe = ["assets/*.toml", "assets/ae/*.jsx"]

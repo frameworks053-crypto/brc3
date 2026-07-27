@@ -1,0 +1,131 @@
+# plpipe 설정 파일.
+# `plpipe init` 이 이 파일을 config.toml 로 복사합니다. 값을 채워서 쓰세요.
+
+[channel]
+name        = "BRC3 Lofi"
+# 영상 제목 템플릿. {mood} {season} {n} {duration} 치환 가능.
+title       = "{mood} — {n} songs to {activity} to · {duration}"
+language    = "ko"
+# YouTube 카테고리 10 = Music
+category_id = 10
+tags = ["lofi", "chill beats", "study music", "playlist", "ai music"]
+
+
+[project]
+# 한 영상에 들어가는 곡 수.
+track_count = 13
+# 시퀀스를 몇 번 더 반복할지. 1 = 전체를 두 번 재생 (13곡 × 2).
+repeat      = 1
+# 곡 사이 간격(초). crossfade 를 쓰면 무시됨.
+gap         = 1.5
+# 0 보다 크면 gap 대신 크로스페이드(초)를 적용.
+crossfade   = 0.0
+# 영상 맨 앞/뒤 여백(초).
+lead_in     = 2.0
+lead_out    = 4.0
+
+
+[audio]
+# YouTube 라우드니스 타깃. -14 LUFS 가 표준.
+target_lufs      = -14.0
+true_peak        = -1.0
+loudness_range    = 11.0
+sample_rate      = 48000
+# 최종 마스터 포맷: wav | flac
+master_format    = "wav"
+# 곡 앞뒤 무음 자동 제거 (dB 기준). null 이면 비활성.
+trim_silence_db  = -50.0
+
+
+[video]
+width      = 1920
+height     = 1080
+fps        = 24
+# 최종 인코딩 설정 (ffmpeg).
+crf        = 18
+preset     = "slow"
+audio_bitrate = "320k"
+
+
+# ── 음악 생성 ────────────────────────────────────────────────
+[music]
+# manual  : 직접 만들어서 drop/audio 폴더에 넣음 (기본, 가장 안전)
+# suno_api: 서드파티 Suno 래퍼 API 호출
+provider = "manual"
+
+[music.suno_api]
+# 예: https://api.sunoapi.org  /  https://api.evolink.ai
+base_url    = "https://api.sunoapi.org"
+# 키는 config 에 쓰지 말고 환경변수로. (SUNO_API_KEY)
+api_key_env = "SUNO_API_KEY"
+model       = "chirp-v4"
+instrumental = true
+poll_seconds = 10
+poll_timeout = 900
+
+
+# ── 이미지 생성 ──────────────────────────────────────────────
+[image]
+# manual   : Midjourney 등에서 직접 뽑아 drop/images 에 넣음
+# openai   : OpenAI 이미지 API
+# bfl      : Black Forest Labs (FLUX) API
+# fal      : fal.ai (FLUX / 기타 오픈 모델 호스팅)
+provider = "manual"
+# 커버 아트 해상도. 팬/줌 여유를 위해 영상보다 크게 뽑는 걸 권장.
+width  = 2048
+height = 1152
+
+[image.openai]
+base_url    = "https://api.openai.com/v1"
+api_key_env = "OPENAI_API_KEY"
+model       = "gpt-image-1"
+quality     = "high"
+
+[image.bfl]
+base_url    = "https://api.bfl.ai/v1"
+api_key_env = "BFL_API_KEY"
+model       = "flux-pro-1.1"
+poll_seconds = 2
+poll_timeout = 300
+
+[image.fal]
+base_url    = "https://fal.run"
+api_key_env = "FAL_KEY"
+model       = "fal-ai/flux-pro/v1.1"
+
+
+# ── After Effects ───────────────────────────────────────────
+[ae]
+# 렌더 방식:
+#   segments = 곡별 짧은 클립만 AE 로 렌더 → ffmpeg 로 이어붙임 (권장, 훨씬 빠름)
+#   full     = 1시간짜리 컴프를 AE 가 통째로 렌더
+mode = "segments"
+
+# AE 실행파일 경로. 비워두면 OS 기본 위치에서 자동 탐색.
+# Windows 예: "C:/Program Files/Adobe/Adobe After Effects 2025/Support Files/AfterFX.exe"
+# macOS   예: "/Applications/Adobe After Effects 2025/Adobe After Effects 2025.app/Contents/MacOS/Adobe After Effects 2025"
+app      = ""
+aerender = ""
+
+# 템플릿 .aep 경로 (config.toml 기준 상대경로 허용).
+project = "templates/playlist.aep"
+
+# 템플릿 안의 이름 매핑. `plpipe ae inspect` 로 실제 이름을 먼저 확인하세요.
+main_comp   = "MAIN"          # 최종 출력 컴프 (mode="full" 일 때 사용)
+slot_comp   = "SLOT"          # 곡 하나에 해당하는 프리컴프 (복제 대상)
+image_layer = "IMAGE"         # slot_comp 안에서 이미지가 들어갈 레이어
+title_layer = "TITLE"         # 곡 제목 텍스트 레이어 (없으면 "")
+index_layer = "INDEX"         # 트랙 번호 텍스트 레이어 (없으면 "")
+audio_layer = "AUDIO"         # main_comp 안 오디오 레이어 (없으면 "")
+
+# AE 출력 모듈 / 렌더 설정 템플릿 이름.
+# 무손실 중간본을 뽑고 ffmpeg 로 최종 인코딩하는 걸 권장.
+render_settings = "Best Settings"
+output_module   = "Lossless"
+# 중간본 확장자 (output_module 과 일치해야 함).
+intermediate_ext = "mov"
+
+
+[paths]
+# 모든 경로는 config.toml 이 있는 폴더 기준.
+projects = "projects"

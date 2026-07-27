@@ -172,10 +172,23 @@
     } else {
         var mainTemplate = findItem(names.main_comp, true);
         var main;
+        var anchorBelow = null;   // 원래 슬롯들 바로 아래에 있던 레이어
         if (mainTemplate) {
             main = mainTemplate.duplicate();
             main.name = job.main.name;
-            // 템플릿 메인 컴프의 기존 슬롯 인스턴스는 치운다.
+
+            /* 템플릿 메인 컴프의 기존 슬롯 인스턴스를 치운다. 새로 넣을
+               슬롯들을 원래 있던 깊이에 되돌려 놓아야 하므로, 지우기 전에
+               가장 아래 슬롯 바로 밑의 레이어를 기억해 둔다. AE 의
+               layers.add() 는 새 레이어를 맨 위에 넣기 때문에, 이걸 안 하면
+               배경 위에 얹어둔 로고나 오버레이가 이미지에 가려진다. */
+            var lowestSlot = -1;
+            for (var f = 1; f <= main.layers.length; f++) {
+                if (main.layers[f].source === slotTemplate) lowestSlot = f;
+            }
+            if (lowestSlot > 0 && lowestSlot < main.layers.length) {
+                anchorBelow = main.layers[lowestSlot + 1];
+            }
             for (var m = main.layers.length; m >= 1; m--) {
                 if (main.layers[m].source === slotTemplate) main.layers[m].remove();
             }
@@ -198,6 +211,8 @@
             inst.startTime = place.start;
             inst.inPoint = place.start;
             inst.outPoint = Math.min(place.end, job.main.duration);
+            // 원래 슬롯이 있던 깊이로 되돌린다 (배경 위, 오버레이 아래).
+            if (anchorBelow) inst.moveBefore(anchorBelow);
         }
 
         if (job.main.audio) {

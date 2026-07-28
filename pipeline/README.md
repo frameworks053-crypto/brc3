@@ -18,18 +18,20 @@
 
 ## 1. 설치와 설정
 
+**윈도우** — `pipeline\설치.bat` 을 더블클릭하세요. 파이썬·ffmpeg·AE 를 확인하고
+없으면 어디서 받는지 알려준 뒤 plpipe 를 설치합니다.
+
+**macOS / 직접 설치**
+
 ```bash
-# ffmpeg 먼저
-winget install Gyan.FFmpeg      # Windows
-brew install ffmpeg             # macOS
+brew install ffmpeg
+cd pipeline && pip install -e .
+```
 
-# plpipe
-cd pipeline
-pip install -e .
+설치가 끝나면 작업 폴더에 AE 템플릿(.aep)을 두고:
 
-# 작업 폴더로 가서 AE 템플릿(.aep)을 그 안에 두고
-cd ~/playlist
-
+```bash
+cd D:\warmtapesociety      # 작업 폴더
 plpipe setup
 ```
 

@@ -62,8 +62,9 @@
         if (layer.source instanceof FootageItem) {
             var main = layer.source.mainSource;
             if (main instanceof SolidSource) return "solid";
-            if (layer.source.hasVideo && !layer.source.hasAudio) return "still/video";
             if (layer.source.hasAudio && !layer.source.hasVideo) return "audio";
+            // 선택자(@still / @footage)와 같은 이름을 써야 헷갈리지 않는다.
+            if (layer.source.hasVideo && layer.source.duration === 0) return "still";
             return "footage";
         }
         return "other";

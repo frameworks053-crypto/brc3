@@ -1,0 +1,100 @@
+# ═══════════════════════════════════════════════════════════
+#  이 파일을 config.toml 로 저장하세요.
+#
+#  ▶ 표시된 3곳만 고치면 됩니다. 나머지는 리포트 보고 채워뒀습니다.
+#  ▶ 고친 뒤 `plpipe check` 를 돌리면 맞는지 확인해 줍니다.
+#
+#  경로에 역슬래시(\) 쓰지 마세요. 슬래시(/) 를 쓰거나 '작은따옴표' 로 감싸세요.
+# ═══════════════════════════════════════════════════════════
+
+
+# ▶▶▶ 1. 곡이 몇 개인가요? ─────────────────────────────────
+#     아래 slot_comps 목록의 개수와 반드시 같아야 합니다.
+[project]
+track_count = 13
+repeat      = 0        # 0 = 한 번만 재생 (30분). 1 로 하면 두 번 재생 (1시간)
+
+
+# ▶▶▶ 2. 템플릿 파일 이름 ──────────────────────────────────
+#     이 .aep 를 작업폴더의 templates\ 안에 넣으세요.
+[ae]
+project = "templates/여기에실제파일이름.aep"
+
+
+# ▶▶▶ 3. 곡 컴프 이름 ──────────────────────────────────────
+#     Main 컴프의 레이어 11~24번에 있는 precomp 들을,
+#     위에서 아래 순서 그대로 적으세요.
+#     지금은 13개입니다. 14개를 쓰신다면 하나 더 넣고
+#     위의 track_count 도 14 로 바꾸세요.
+slot_comps = [
+  "Change - Things 21",
+  "Change - Things",
+  "Change - Things 2",
+  "Change - Things 3",
+  "Change - Things 4",
+  "Change - Things 5",
+  "Change - Things 6",
+  "Change - Things 7",
+  "Change - Things 8",
+  "Change - Things 9",
+  "Change - Things 10",
+  "Change - Things 11",
+  "Change - Things 12",
+]
+
+
+# ═══ 여기서부터는 손댈 필요 없습니다 ═══════════════════════
+
+# Main 안에 오디오 스펙트럼·로고·오버레이가 있어서 full 이어야 합니다.
+mode      = "full"
+main_comp = "Main"
+
+# 레이어 이름이 곡 제목·이미지 파일명이라 이름으로 못 찾습니다. 종류로 찾습니다.
+image_layer = "@still"   # 곡 컴프의 첫 번째 이미지
+title_layer = "@text"    # 곡 컴프의 첫 번째 텍스트
+index_layer = ""         # 트랙 번호 레이어 없음
+audio_layer = "@audio"   # Main 의 ep07_full.wav 자리
+
+render_settings  = "Best Settings"
+output_module    = "Lossless"
+intermediate_ext = "mov"
+
+# AE 경로는 비워두면 알아서 찾습니다. 못 찾으면 `plpipe check` 가 알려주니
+# 그때 아래 주석을 풀고 실제 경로를 적으세요.
+app      = ""
+aerender = ""
+
+
+# 오디오는 직접 합쳐서 drop\master.wav 로 넣으시면,
+# 무음을 찾아 곡 경계를 자동으로 잡습니다.
+[audio]
+source = "manual"
+master = "drop/master.wav"
+
+
+# 리포트에서 확인한 값들입니다.
+[video]
+width  = 3840
+height = 2160
+fps    = 29.97
+
+
+[music]
+provider = "manual"
+
+[image]
+provider = "manual"
+width  = 3840
+height = 2160
+
+
+[channel]
+name        = "warm tape society"
+title       = "{mood} · {n} tracks"
+language    = "ko"
+category_id = 10
+tags = ["neo soul", "r&b", "lofi", "study music", "playlist"]
+
+
+[paths]
+projects = "projects"

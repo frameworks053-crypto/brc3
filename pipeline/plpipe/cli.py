@@ -9,6 +9,7 @@ from pathlib import Path
 
 from . import ae as ae_mod
 from . import audio as audio_mod
+from . import check as check_mod
 from . import cue as cue_mod
 from . import ffmpeg, metadata, render
 from .config import Config, ConfigError, EXAMPLE_NAME
@@ -133,6 +134,21 @@ def _parse_vars(pairs: list[str] | None) -> dict[str, str]:
             raise SystemExit(f"--var 는 key=value 형식이어야 합니다: {pair!r}")
         out[key.strip()] = value.strip()
     return out
+
+
+def cmd_check(args) -> int:
+    """렌더 전에 설정이 맞는지 점검한다."""
+    cfg = Config.load(Path(args.config).resolve() if args.config else None)
+    try:
+        proj = Project.resolve(cfg.projects_dir, getattr(args, "project", None))
+    except ProjectError:
+        proj = None  # 아직 프로젝트를 안 만들었어도 설정은 검사할 수 있다.
+
+    print(f"설정: {cfg.path}")
+    if proj is not None:
+        print(f"프로젝트: {proj.slug}")
+    print()
+    return 1 if check_mod.report(check_mod.run(cfg, proj)) else 0
 
 
 def cmd_status(args) -> int:
@@ -502,6 +518,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_new.add_argument("--titles", help="곡 제목 목록 파일 (`제목 | 프롬프트` 한 줄에 하나)")
     p_new.add_argument("--var", action="append", help="제목 템플릿 변수 (key=value)")
 
+    add("check", cmd_check, "렌더 전에 설정이 맞는지 점검한다")
     add("status", cmd_status, "프로젝트 진행 상황을 본다")
     add("prompts", cmd_prompts, "수동 생성용 프롬프트를 뽑는다")
 

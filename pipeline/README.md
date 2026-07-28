@@ -151,7 +151,40 @@ slot_comps = ["Change - Things 21", "Change - Things", "Change - Things 2"]
 
 ---
 
-## 3. 한 편 만들기
+## 3. 설정이 맞는지 먼저 확인
+
+렌더는 4K 30분이면 몇 시간이 걸립니다. 그전에 잡을 수 있는 건 다 잡으세요.
+
+```bash
+plpipe check
+```
+
+```
+  ✓ ffmpeg / ffprobe
+  ✓ After Effects     C:/Program Files/Adobe/.../AfterFX.exe
+  ✓ AE 템플릿         warm-tape-society.aep
+  ✓ 곡 컴프 목록      13개 (곡 수와 일치)
+  ✓ 메인 컴프         Main (1773.974s)
+  ✓ 곡 컴프           13개 전부 템플릿에 있음
+  ! 제목 레이어       @text 에 맞는 레이어가 없는 컴프 1개: ['Change - Things 21']
+      → 그 컴프에서는 이 항목을 건너뜁니다
+  ✓ 출력 모듈         Lossless
+```
+
+AE 를 띄우지 않고 검사합니다. `plpipe ae inspect` 를 한 번 돌려두면
+**설정에 적은 컴프·레이어 이름이 템플릿에 실제로 있는지까지 대조**합니다:
+
+- 대소문자 오타 → `'MAIN' 이 없습니다 → 혹시 'Main'?`
+- 이름 끝 공백 → `못 찾음: ['Change - Things 12 ']`
+- 없는 출력 모듈 → `'H.264' 은 없는 이름입니다 → 사용 가능: Lossless, ...`
+- 이미지 레이어가 여러 개 → 어느 걸 쓸지 알려주고, `:last` 로 지정하는 법 안내
+
+`examples/` 에 실제 템플릿에 맞춰 만든 설정 예시가 있습니다.
+`config-minimal.toml` 은 고쳐야 할 곳 3군데만 남기고 나머지를 채워둔 버전입니다.
+
+---
+
+## 4. 한 편 만들기
 
 ```bash
 # 1) 프로젝트 생성 (제목 템플릿 변수도 같이 넘길 수 있음)
@@ -205,7 +238,7 @@ plpipe prompts    # 수동 생성용으로 프롬프트 목록 출력
 
 ---
 
-## 4. 렌더 방식 — `segments` 를 쓰세요
+## 5. 렌더 방식 — `segments` 를 쓰세요
 
 `[ae] mode` 로 고릅니다.
 
@@ -240,7 +273,7 @@ AE 는 컴프 길이를 **정수 프레임 단위로만** 잡습니다. 곡 길�
 
 ---
 
-## 5. 오디오 처리
+## 6. 오디오 처리
 
 ### 오디오를 직접 합쳐서 넣는 경우
 
@@ -288,7 +321,7 @@ plpipe cue --min-silence 0.8    # 곡 안의 짧은 정적을 무시
 - `crossfade` 를 0보다 크게 주면 간격 대신 크로스페이드가 걸립니다.
   다만 **오디오만** 겹칩니다 — 화면 전환은 컷입니다. 영상 크로스페이드가 필요하면 AE 템플릿에서 처리하세요.
 
-## 6. 메타데이터
+## 7. 메타데이터
 
 `plpipe meta` 가 유튜브 챕터 규칙을 검사해서 안 맞으면 경고합니다:
 첫 챕터 0:00, 최소 3개, 각 구간 10초 이상, 제목 100자·설명 5000자 한도.
@@ -297,7 +330,7 @@ plpipe cue --min-silence 0.8    # 곡 안의 짧은 정적을 무시
 
 ---
 
-## 7. 자동화 어디까지 되나 — Suno / Midjourney 현실
+## 8. 자동화 어디까지 되나 — Suno / Midjourney 현실
 
 **요약: 이 볼륨(영상당 13곡 + 13장)에서는 비용이 의미 없는 수준입니다. 진짜 변수는 API 유무입니다.**
 
@@ -360,11 +393,12 @@ plpipe images
 
 ---
 
-## 8. 명령어
+## 9. 명령어
 
 | 명령 | 하는 일 |
 |---|---|
 | `plpipe init [폴더]` | `config.toml` 과 작업 폴더 생성 |
+| `plpipe check` | **렌더 전 설정 점검** — 컴프·레이어 이름까지 대조 |
 | `plpipe new <이름>` | 새 영상 프로젝트 생성 |
 | `plpipe status` | 트랙별 진행 상황 |
 | `plpipe prompts` | 수동 생성용 프롬프트 목록 |
@@ -381,7 +415,7 @@ plpipe images
 
 프로젝트를 지정하지 않으면 **가장 최근 프로젝트**를 씁니다. `-p <slug>` 로 지정할 수 있습니다.
 
-## 9. 프로젝트 폴더 구조
+## 10. 프로젝트 폴더 구조
 
 ```
 projects/<slug>/
@@ -398,17 +432,19 @@ projects/<slug>/
     metadata.txt / metadata.json
 ```
 
-## 10. 테스트
+## 11. 테스트
 
 ```bash
 cd pipeline
 python3 -m unittest discover -s tests
 ```
 
-테스트 80개, ffmpeg 나 AE 없이 돕니다.
+테스트 99개, ffmpeg 나 AE 없이 돕니다.
 
 - `test_pipeline.py` — 타임라인 계산, 프레임 정렬, NTSC 프레임레이트,
   곡 경계 검출, 유튜브 챕터 규칙, 파일명 파싱, 프로바이더 응답 파싱
+- `test_check.py` — `plpipe check` 가 실제 템플릿 구조에서 오타·누락을
+  잡아내는지 (대소문자, 끝 공백, 개수 불일치, 없는 출력 모듈 등)
 - `test_jsx.py` — **AE 스크립트를 실제로 실행해서** 검증합니다.
   `tests/ae_mock/harness.mjs` 가 AE 의 ExtendScript API 를 흉내내므로,
   AE 를 켜지 않고도 이미지 교체·텍스트 입력·컴프 길이·렌더 큐·레이어 순서가

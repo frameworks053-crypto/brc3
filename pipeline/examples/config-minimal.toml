@@ -9,28 +9,32 @@
 
 
 # ▶▶▶ 1. 곡이 몇 개인가요? ─────────────────────────────────
-#     아래 slot_comps 목록의 개수와 반드시 같아야 합니다.
+#     인트로는 빼고 세세요. 아래 slot_comps 개수와 같아야 합니다.
 [project]
 track_count = 13
 repeat      = 0        # 0 = 한 번만 재생 (30분). 1 로 하면 두 번 재생 (1시간)
 
 
 # ▶▶▶ 2. 템플릿 파일 이름 ──────────────────────────────────
-#     이 .aep 를 작업폴더의 templates\ 안에 넣으세요.
+#     .aep 는 config.toml 옆의 templates\ 폴더에 넣으세요.
+#     (음원·이미지가 아니라 .aep 만 여기 들어갑니다. 음원·이미지는
+#      `plpipe new` 가 만들어주는 projects\<이름>\drop\ 안으로.)
 [ae]
 project = "templates/여기에실제파일이름.aep"
 
 
 # ▶▶▶ 3. 곡 컴프 이름 ──────────────────────────────────────
-#     Main 컴프의 레이어 11~24번에 있는 precomp 들을,
-#     위에서 아래 순서 그대로 적으세요.
-#     지금은 13개입니다. 14개를 쓰신다면 하나 더 넣고
-#     위의 track_count 도 14 로 바꾸세요.
+#     Main 컴프의 precomp 들을 곡 순서대로 적습니다.
+#
+#     인트로("Change - Things 21")는 곡이 아니므로 여기 넣지 마세요.
+#     목록에 없는 컴프는 파이프라인이 아예 건드리지 않습니다 —
+#     인트로의 이미지·타이밍·레이어 순서가 그대로 유지됩니다.
+#
+#     아래는 Main 레이어 12~24번, 즉 곡 13개입니다.
 slot_comps = [
-  "Change - Things 21",
-  "Change - Things",
-  "Change - Things 2",
-  "Change - Things 3",
+  "Change - Things",       # 1번 곡  ← 01-*.png 가 여기 들어감
+  "Change - Things 2",     # 2번 곡  ← 02-*.png
+  "Change - Things 3",     # 3번 곡
   "Change - Things 4",
   "Change - Things 5",
   "Change - Things 6",
@@ -40,6 +44,7 @@ slot_comps = [
   "Change - Things 10",
   "Change - Things 11",
   "Change - Things 12",
+  "Change - Things 13",    # 13번 곡 ← 13-*.png
 ]
 
 

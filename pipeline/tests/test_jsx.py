@@ -147,7 +147,8 @@ class TestBuildProjectExistingComps(unittest.TestCase):
     슬롯 컴프를 복제하는 대신 기존 컴프의 내용만 바꿔야 한다.
     """
 
-    COMPS = ["Change - Things 21", "Change - Things", "Change - Things 2"]
+    # 인트로("Change - Things 21")는 곡이 아니라 목록에 없다.
+    COMPS = ["Change - Things", "Change - Things 2", "Change - Things 3"]
     TITLES = ["Neon Rain", "Late Transfer", "Blue Hour"]
 
     @classmethod
@@ -179,8 +180,9 @@ class TestBuildProjectExistingComps(unittest.TestCase):
 
     def test_extra_still_is_left_alone_and_reported(self):
         # 정리 안 된 여분 스틸이 있는 컴프는 건드리지 않고 경고만 남긴다.
+        # 시나리오에서 세 번째 컴프에만 여분 스틸이 있다.
         leftover = [c for c in self.result["built"]
-                    if c["name"] == "Change - Things 2"][0]
+                    if c["name"] == self.COMPS[2]][0]
         sources = [l["source"] for l in leftover["layers"]]
         self.assertIn("u3887476322_leftover_df845f19.png", sources)
         self.assertTrue(
@@ -212,6 +214,27 @@ class TestBuildProjectExistingComps(unittest.TestCase):
                   if l["name"].startswith("Change")]
         self.assertEqual(starts, sorted(starts))
         self.assertAlmostEqual(starts[0], 0.0, places=6)
+
+    def test_intro_comp_is_left_completely_alone(self):
+        """곡이 아닌 컴프(인트로)는 목록에 없으므로 손대면 안 된다.
+
+        메인에서 걷어내지도, 이미지를 바꾸지도, 타이밍을 옮기지도 않아야
+        한다. 손으로 맞춰둔 인트로가 그대로 남아야 하기 때문이다.
+        """
+        self.assertIn("Change - Things 21", self.names)
+        intro = next(l for l in self.main["layers"]
+                     if l["name"] == "Change - Things 21")
+        self.assertEqual(intro["startTime"], 0)
+        self.assertEqual(intro["outPoint"], 12.0)
+        self.assertEqual(
+            [l["source"] for l in self.result["intro"]["layers"]],
+            ["intro_art.png"],
+        )
+
+    def test_intro_stays_above_the_song_comps(self):
+        self.assertLess(self.names.index("Change - Things 21"),
+                        min(i for i, n in enumerate(self.names)
+                            if n in self.COMPS))
 
     def test_renders_the_main_comp_only(self):
         queue = self.result["renderQueue"]

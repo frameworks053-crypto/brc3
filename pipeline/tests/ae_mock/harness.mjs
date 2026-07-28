@@ -159,6 +159,13 @@ function makeComp(spec) {
         ),
         enabled: l.enabled,
       }));
+      // AE 의 comp.duplicate() 는 레이어 타이밍도 그대로 복사한다.
+      // 이걸 안 옮기면 "인트로 타이밍이 유지되는가" 를 검증할 수 없다.
+      comp.layers._list.forEach((l, i) => {
+        copies[i].startTime = l.startTime;
+        copies[i].inPoint = l.inPoint;
+        copies[i].outPoint = l.outPoint;
+      });
       const dup = makeComp({ name: name + " 2", width, height, frameRate,
                              duration, layers: copies });
       state.items.push(dup);
@@ -230,7 +237,7 @@ function buildScenario() {
    대신 기존 컴프의 내용만 바꿔야 한다. */
 function buildExistingScenario() {
   const titles = ["First thing", "South side", "All week"];
-  const compNames = ["Change - Things 21", "Change - Things", "Change - Things 2"];
+  const compNames = ["Change - Things", "Change - Things 2", "Change - Things 3"];
   const comps = [];
 
   for (let i = 0; i < titles.length; i++) {
@@ -256,6 +263,16 @@ function buildExistingScenario() {
     }));
   }
 
+  // 인트로 컴프. 곡이 아니므로 slot_comps 에 들어가지 않고, 손대면 안 된다.
+  const intro = makeComp({
+    name: "Change - Things 21", width: 3840, height: 2160,
+    frameRate: 30000 / 1001, duration: 3629.997,
+    layers: [makeLayer({
+      name: "intro_art.png",
+      source: makeFootage({ name: "intro_art.png" }),
+    })],
+  });
+
   const scratch = makeFootage({ name: "ep07_full.wav", duration: 1774,
                                 hasAudio: true, hasVideo: false });
   const mainLayers = [
@@ -270,6 +287,11 @@ function buildExistingScenario() {
     makeLayer({ name: "Song Title", type: TextLayer, text: "Song Title" }),
     makeLayer({ name: "tagline", type: TextLayer, text: "analog warmth" }),
   ];
+  // 인트로가 곡들보다 위에 놓여 있다 (실제 템플릿의 레이어 11번).
+  const introLayer = makeLayer({ name: intro.name, source: intro });
+  introLayer.startTime = 0;
+  introLayer.outPoint = 12.0;
+  mainLayers.push(introLayer);
   for (const comp of comps) {
     mainLayers.push(makeLayer({ name: comp.name, source: comp }));
   }
@@ -278,8 +300,8 @@ function buildExistingScenario() {
     frameRate: 30000 / 1001, duration: 1773.974, layers: mainLayers,
   });
 
-  state.items = [main, ...comps, scratch];
-  return { main, comps };
+  state.items = [main, ...comps, intro, scratch];
+  return { main, comps, intro };
 }
 
 // AE 의 ItemCollection: .length = N, [1]..[N] 로 1-기반 접근.
@@ -390,7 +412,8 @@ const scenario = mode === "build-existing"
 
 if (mode === "build-existing") {
   // 곡별 컴프가 이미 있는 템플릿. 선택자로 레이어를 찾는다.
-  const compNames = ["Change - Things 21", "Change - Things", "Change - Things 2"];
+  // 인트로("Change - Things 21")는 곡이 아니라 목록에 없다.
+  const compNames = ["Change - Things", "Change - Things 2", "Change - Things 3"];
   const titles = ["Neon Rain", "Late Transfer", "Blue Hour"];
   const cues = [0, 181.2812, 385.9896];       // 프레임 정렬된 곡 경계
   const total = 581.1146;
@@ -537,6 +560,13 @@ process.stdout.write(JSON.stringify({
     output: r._om.file ? r._om.file.fsName : null,
   })),
   imported: state.imported,
+  intro: scenario.intro ? {
+    name: scenario.intro.name,
+    layers: scenario.intro.layers._list.map((l) => ({
+      name: l.name,
+      source: l.source ? (l.source.path || l.source.name) : null,
+    })),
+  } : null,
   savedTo: state.savedTo,
   closed: state.closed,
   report: state.report,

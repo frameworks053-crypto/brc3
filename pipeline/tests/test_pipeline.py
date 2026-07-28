@@ -16,6 +16,7 @@ from plpipe.audio import (  # noqa: E402
     exact_fps,
     snap_up,
 )
+from plpipe.config import Config, ConfigError  # noqa: E402
 from plpipe.cue import CueError, Silence, cues_from_silences  # noqa: E402
 from plpipe.ffmpeg import parse_loudnorm_json  # noqa: E402
 from plpipe.metadata import (  # noqa: E402
@@ -191,6 +192,43 @@ class TestFrameAlignment(unittest.TestCase):
             abs(round(seg.step * fps) / fps - seg.step) for seg in tight.segments
         )
         self.assertAlmostEqual(aligned_drift, 0.0, places=6)
+
+
+class TestConfigLoading(unittest.TestCase):
+    """윈도우 메모장으로 편집했을 때 실제로 나오는 상황들."""
+
+    BODY = '# 한글 주석\n[ae]\nmode = "full"\n'
+
+    def _load(self, data: bytes):
+        import tempfile
+
+        tmp = Path(tempfile.mkdtemp()) / "config.toml"
+        tmp.write_bytes(data)
+        return Config.load(tmp)
+
+    def test_utf8_with_bom_is_accepted(self):
+        # 메모장이 "UTF-8" 로 저장하면 BOM 을 붙인다. TOML 은 이걸 허용하지
+        # 않아서 "1행 1열이 잘못됨" 이라는 엉뚱한 오류가 났었다.
+        cfg = self._load(b"\xef\xbb\xbf" + self.BODY.encode("utf-8"))
+        self.assertEqual(cfg.get("ae.mode"), "full")
+
+    def test_plain_utf8_is_accepted(self):
+        self.assertEqual(self._load(self.BODY.encode("utf-8")).get("ae.mode"), "full")
+
+    def test_ansi_encoding_explains_how_to_fix(self):
+        with self.assertRaises(ConfigError) as ctx:
+            self._load(self.BODY.encode("cp949"))
+        self.assertIn("UTF-8", str(ctx.exception))
+
+    def test_windows_backslash_path_explains_how_to_fix(self):
+        with self.assertRaises(ConfigError) as ctx:
+            self._load(b'[ae]\napp = "C:\\Program Files\\Adobe"\n')
+        self.assertIn("역슬래시", str(ctx.exception))
+
+    def test_missing_quotes_explains_how_to_fix(self):
+        with self.assertRaises(ConfigError) as ctx:
+            self._load(b"[ae]\nmode = full\n")
+        self.assertIn("큰따옴표", str(ctx.exception))
 
 
 class TestNtscFrameRates(unittest.TestCase):

@@ -41,8 +41,35 @@ class Config:
     @classmethod
     def load(cls, path: Path | None = None) -> "Config":
         path = path or find_config()
-        with path.open("rb") as fh:
-            data = tomllib.load(fh)
+        raw = path.read_bytes()
+
+        # 윈도우 메모장이 "UTF-8" 로 저장하면 앞에 BOM 을 붙인다. TOML 은
+        # 이걸 허용하지 않아서 "1행 1열이 잘못됨" 이라는 엉뚱한 오류가 난다.
+        # 그냥 떼어내면 되는 문제라 조용히 처리한다.
+        if raw.startswith(b"\xef\xbb\xbf"):
+            raw = raw[3:]
+
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ConfigError(
+                f"{path} 를 읽지 못했습니다. UTF-8 로 저장되어 있지 않습니다.\n"
+                "메모장에서 [파일 > 다른 이름으로 저장] 을 누르고 아래쪽\n"
+                "'인코딩' 을 'UTF-8' 로 바꿔서 덮어써 주세요.\n"
+                "(한글 주석이 들어 있으면 ANSI 로는 저장하면 안 됩니다.)"
+            ) from exc
+
+        try:
+            data = tomllib.loads(text)
+        except tomllib.TOMLDecodeError as exc:
+            raise ConfigError(
+                f"{path} 의 문법이 잘못됐습니다.\n  {exc}\n\n"
+                "자주 나오는 원인:\n"
+                "  · 윈도우 경로의 역슬래시 — \"C:\\Program Files\" 대신\n"
+                "    \"C:/Program Files\" 처럼 슬래시를 쓰거나 작은따옴표로 감싸세요.\n"
+                "  · 문자열에 큰따옴표를 안 씀 — mode = full  →  mode = \"full\"\n"
+                "  · 목록의 대괄호나 쉼표 빠짐"
+            ) from exc
         return cls(path=path, data=data)
 
     # ── 접근 헬퍼 ────────────────────────────────────────────

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -11,6 +12,7 @@ from . import ae as ae_mod
 from . import audio as audio_mod
 from . import check as check_mod
 from . import cue as cue_mod
+from . import setup_wizard as wiz
 from . import ffmpeg, metadata, render
 from .config import Config, ConfigError, EXAMPLE_NAME
 from .project import (
@@ -134,6 +136,126 @@ def _parse_vars(pairs: list[str] | None) -> dict[str, str]:
             raise SystemExit(f"--var 는 key=value 형식이어야 합니다: {pair!r}")
         out[key.strip()] = value.strip()
     return out
+
+
+def cmd_setup(args) -> int:
+    """물어보고 config.toml 을 대신 써 준다."""
+    root = Path(args.dir or ".").resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    dst = root / "config.toml"
+    yes = bool(getattr(args, "yes", False))
+
+    print(f"작업 폴더: {root}\n")
+    if dst.exists() and not args.force:
+        print(f"config.toml 이 이미 있습니다: {dst}")
+        if not wiz.ask_yes("덮어쓸까요?", False, assume_yes=yes):
+            return 1
+    (root / "templates").mkdir(exist_ok=True)
+    (root / "projects").mkdir(exist_ok=True)
+
+    # 1. AE 템플릿 찾기 ─────────────────────────────────────
+    candidates = wiz.find_templates(root)
+    if not candidates:
+        print(f"이 폴더에서 .aep 파일을 찾지 못했습니다.\n"
+              f"AE 템플릿을 {root / 'templates'} 안에 넣고 다시 실행해 주세요.")
+        return 1
+    rels = [str(p.relative_to(root)) for p in candidates]
+    chosen = wiz.confirm_or_choose("AE 템플릿", rels[0], rels, assume_yes=yes)
+    template = candidates[rels.index(chosen)]
+    print()
+
+    # 2. 템플릿 구조 읽기 ───────────────────────────────────
+    dump_path = root / "work" / "ae-template.json"
+    dump = None
+    if dump_path.is_file() and not args.reread:
+        if wiz.ask_yes("전에 읽어둔 템플릿 구조를 그대로 쓸까요?", True, assume_yes=yes):
+            dump = json.loads(dump_path.read_text(encoding="utf-8"))
+    if dump is None:
+        print("After Effects 로 템플릿 구조를 읽는 중… (창이 잠깐 뜹니다)")
+        stub = Config(path=dst if dst.exists() else root / "config.toml",
+                      data={"ae": {"project": str(template),
+                                   "app": args.ae_app or ""}})
+        try:
+            dump = ae_mod.inspect_template(stub, dump_path)
+        except ae_mod.AEError as exc:
+            print(f"\n템플릿을 읽지 못했습니다:\n  {exc}\n")
+            print("AE 를 닫고 다시 시도하거나, --ae-app 으로 실행파일 경로를 알려주세요.")
+            return 1
+    print()
+
+    info = wiz.derive_from_dump(dump)
+
+    # 3. 메인 컴프 ──────────────────────────────────────────
+    comp_names = list(info["comps"])
+    main_comp = wiz.confirm_or_choose(
+        "최종 출력할 메인 컴프", info["main_comp"], comp_names, assume_yes=yes)
+    if main_comp != info["main_comp"]:
+        main = info["comps"].get(main_comp, {})
+        info["main_comp"] = main_comp
+        info["precomps"] = wiz.precomps_in(main)
+        info["width"] = main.get("width", info["width"])
+        info["height"] = main.get("height", info["height"])
+        info["fps"] = main.get("fps", info["fps"])
+        info["has_audio_layer"] = any(
+            l.get("kind") == "audio" for l in main.get("layers", []))
+    print(f"  → {main_comp}  {info['width']}x{info['height']} @{info['fps']}fps\n")
+
+    # 4. 곡 컴프 ────────────────────────────────────────────
+    precomps = info["precomps"]
+    if not precomps:
+        print(f"'{main_comp}' 안에 프리컴프가 없습니다. 다른 컴프인지 확인해 주세요.")
+        return 1
+    print(f"'{main_comp}' 안의 컴프 {len(precomps)}개입니다. 이 중 곡이 아닌 것을 빼겠습니다.")
+    for i, name in enumerate(precomps, start=1):
+        print(f"  {i}. {name}")
+    raw = wiz.ask("곡이 아닌 것의 번호 (쉼표로 구분, 없으면 그냥 Enter)", "",
+                  assume_yes=yes)
+    excluded = set()
+    for piece in raw.replace(" ", "").split(","):
+        if piece.isdigit() and 1 <= int(piece) <= len(precomps):
+            excluded.add(int(piece) - 1)
+    songs = [n for i, n in enumerate(precomps) if i not in excluded]
+    if not songs:
+        print("곡이 하나도 남지 않았습니다.")
+        return 1
+    print(f"  → 곡 {len(songs)}개" +
+          (f" (제외 {len(excluded)}개)" if excluded else "") + "\n")
+
+    # 5. 나머지 ─────────────────────────────────────────────
+    manual = wiz.ask_yes("오디오를 직접 합쳐서 넣으시나요?", True, assume_yes=yes)
+    repeat = 1 if wiz.ask_yes("전체를 한 번 더 반복해서 길이를 두 배로 할까요?",
+                              False, assume_yes=yes) else 0
+    channel = wiz.ask("채널 이름", root.name, assume_yes=yes)
+
+    app = aerender = ""
+    try:
+        app = str(ae_mod.find_binary("app", args.ae_app or None))
+        aerender = str(ae_mod.find_binary("aerender", None))
+    except ae_mod.AEError:
+        pass
+
+    answers = {
+        "project": str(template.relative_to(root)),
+        "main_comp": main_comp,
+        "slot_comps": songs,
+        "width": info["width"], "height": info["height"], "fps": info["fps"],
+        "mode": "full",
+        "audio_source": "manual" if manual else "pipeline",
+        "repeat": repeat,
+        "channel_name": channel,
+        "image_layer": wiz.pick_selector(info["comps"], songs, "still") or "@image",
+        "title_layer": wiz.pick_selector(info["comps"], songs, "text"),
+        "audio_layer": "@audio" if info["has_audio_layer"] else "",
+        "render_settings": info["render_settings"],
+        "output_module": info["output_module"],
+        "app": app, "aerender": aerender,
+    }
+    dst.write_text(wiz.render_config(answers), encoding="utf-8")
+
+    print(f"\n{dst} 를 만들었습니다.\n")
+    print("이어서 확인해 보세요:")
+    print("  plpipe check")
+    return 0
 
 
 def cmd_check(args) -> int:
@@ -517,6 +639,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_new.add_argument("-n", "--tracks", type=int, help="곡 수 (기본: 설정값)")
     p_new.add_argument("--titles", help="곡 제목 목록 파일 (`제목 | 프롬프트` 한 줄에 하나)")
     p_new.add_argument("--var", action="append", help="제목 템플릿 변수 (key=value)")
+
+    p_setup = add("setup", cmd_setup, "물어보고 config.toml 을 대신 만들어 준다",
+                  needs_project=False)
+    p_setup.add_argument("dir", nargs="?", help="작업 폴더 (기본: 현재 폴더)")
+    p_setup.add_argument("--force", action="store_true", help="기존 설정을 덮어쓴다")
+    p_setup.add_argument("--reread", action="store_true",
+                         help="템플릿 구조를 다시 읽는다")
+    p_setup.add_argument("--ae-app", help="AfterFX 실행파일 경로")
+    p_setup.add_argument("--yes", action="store_true", help="전부 기본값으로")
 
     add("check", cmd_check, "렌더 전에 설정이 맞는지 점검한다")
     add("status", cmd_status, "프로젝트 진행 상황을 본다")

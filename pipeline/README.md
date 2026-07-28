@@ -16,7 +16,7 @@
 
 ---
 
-## 1. 설치
+## 1. 설치와 설정
 
 ```bash
 # ffmpeg 먼저
@@ -27,13 +27,36 @@ brew install ffmpeg             # macOS
 cd pipeline
 pip install -e .
 
-# 작업 폴더 만들기 (원하는 위치에서)
-mkdir ~/playlist && cd ~/playlist
-plpipe init .
+# 작업 폴더로 가서 AE 템플릿(.aep)을 그 안에 두고
+cd ~/playlist
+
+plpipe setup
 ```
 
-`plpipe init` 이 `config.toml`, `projects/`, `templates/` 를 만듭니다.
-AE 템플릿 `.aep` 를 `templates/` 에 넣으세요.
+**`plpipe setup` 이 설정 파일을 대신 써 줍니다.** TOML 을 직접 편집할 필요가 없습니다.
+`.aep` 를 찾아서 AE 로 구조를 읽은 뒤, 해상도·프레임레이트·컴프 이름·렌더 템플릿을
+전부 알아서 채우고, 기계가 알 수 없는 것만 물어봅니다.
+
+```
+AE 템플릿: 'templates/warm tape society.aep' 맞나요? [Y]:
+최종 출력할 메인 컴프: 'Main' 맞나요? [Y]:
+  → Main  3840x2160 @29.97fps
+
+'Main' 안의 컴프 14개입니다. 이 중 곡이 아닌 것을 빼겠습니다.
+  1. Change - Things 21
+  2. Change - Things
+  ...
+곡이 아닌 것의 번호 (쉼표로 구분, 없으면 그냥 Enter): 1
+  → 곡 13개 (제외 1개)
+
+오디오를 직접 합쳐서 넣으시나요? [Y]:
+전체를 한 번 더 반복해서 길이를 두 배로 할까요? [N]:
+채널 이름 [playlist]: warm tape society
+
+config.toml 를 만들었습니다.
+```
+
+설정을 처음부터 손으로 쓰고 싶으면 `plpipe init` 이 주석 달린 견본을 만들어 줍니다.
 
 > `pip install` 없이 쓰려면 `PYTHONPATH=/경로/pipeline python3 -m plpipe ...` 로도 됩니다.
 
@@ -416,7 +439,8 @@ plpipe images
 
 | 명령 | 하는 일 |
 |---|---|
-| `plpipe init [폴더]` | `config.toml` 과 작업 폴더 생성 |
+| `plpipe setup` | **물어보고 config.toml 을 대신 만들어 준다** |
+| `plpipe init [폴더]` | 주석 달린 설정 견본을 만든다 (손으로 쓸 때) |
 | `plpipe check` | **렌더 전 설정 점검** — 컴프·레이어 이름까지 대조 |
 | `plpipe new <이름>` | 새 영상 프로젝트 생성 |
 | `plpipe status` | 트랙별 진행 상황 |
@@ -458,10 +482,12 @@ cd pipeline
 python3 -m unittest discover -s tests
 ```
 
-테스트 99개, ffmpeg 나 AE 없이 돕니다.
+테스트 122개, ffmpeg 나 AE 없이 돕니다.
 
 - `test_pipeline.py` — 타임라인 계산, 프레임 정렬, NTSC 프레임레이트,
   곡 경계 검출, 유튜브 챕터 규칙, 파일명 파싱, 프로바이더 응답 파싱
+- `test_setup.py` — `plpipe setup` 이 템플릿 구조에서 값을 제대로 뽑아
+  유효한 TOML 을 쓰는지 (윈도우 경로 역슬래시 처리 포함)
 - `test_check.py` — `plpipe check` 가 실제 템플릿 구조에서 오타·누락을
   잡아내는지 (대소문자, 끝 공백, 개수 불일치, 없는 출력 모듈 등)
 - `test_jsx.py` — **AE 스크립트를 실제로 실행해서** 검증합니다.

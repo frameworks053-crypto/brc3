@@ -37,16 +37,21 @@ def make_dump() -> dict:
         comps.append({"name": name, "width": 3840, "height": 2160,
                       "fps": 29.97, "duration": 3629.997, "layers": layers})
 
+    # Main 은 오버레이 레이어들 아래에 곡 컴프를 깔아 둔다.
+    # 인트로("Change - Things 21")가 곡들보다 위에 온다.
+    main_layers = [
+        {"index": 1, "name": "LOGO.png", "kind": "still"},
+        {"index": 2, "name": "overlay.mp4", "kind": "footage"},
+        {"index": 3, "name": "AUDIO SPECTRUM", "kind": "solid"},
+        {"index": 4, "name": "ep07_full.wav", "kind": "audio"},
+        {"index": 5, "name": "Song Title", "kind": "text"},
+    ]
+    for i, comp in enumerate(comps):
+        main_layers.append({"index": 6 + i, "name": comp["name"],
+                            "source": comp["name"], "kind": "precomp"})
     comps.append({
         "name": "Main", "width": 3840, "height": 2160, "fps": 29.97,
-        "duration": 1773.974,
-        "layers": [
-            {"index": 1, "name": "LOGO.png", "kind": "still"},
-            {"index": 2, "name": "overlay.mp4", "kind": "footage"},
-            {"index": 3, "name": "AUDIO SPECTRUM", "kind": "solid"},
-            {"index": 4, "name": "ep07_full.wav", "kind": "audio"},
-            {"index": 5, "name": "Song Title", "kind": "text"},
-        ],
+        "duration": 1773.974, "layers": main_layers,
     })
     return {
         "project": "lofi.aep",

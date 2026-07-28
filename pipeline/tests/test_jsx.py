@@ -140,6 +140,86 @@ class TestBuildProjectFull(unittest.TestCase):
 
 
 @unittest.skipUnless(NODE, "node 가 없어 ExtendScript 검증을 건너뜁니다")
+class TestBuildProjectExistingComps(unittest.TestCase):
+    """곡별 컴프를 손으로 만들어 둔 템플릿.
+
+    레이어 이름이 곡 제목·이미지 파일명이라 고정 이름으로 찾을 수 없고,
+    슬롯 컴프를 복제하는 대신 기존 컴프의 내용만 바꿔야 한다.
+    """
+
+    COMPS = ["Change - Things 21", "Change - Things", "Change - Things 2"]
+    TITLES = ["Neon Rain", "Late Transfer", "Blue Hour"]
+
+    @classmethod
+    def setUpClass(cls):
+        cls.result = run_harness("build-existing", "build_project.jsx")
+        cls.main = cls.result["main"]
+        cls.names = [l["name"] for l in cls.main["layers"]]
+
+    def test_edits_existing_comps_instead_of_duplicating(self):
+        built = [c["name"] for c in self.result["built"]]
+        self.assertEqual(sorted(built), sorted(self.COMPS))
+        self.assertFalse([n for n in built if n.startswith("PL_SLOT")])
+
+    def test_image_selector_finds_layer_by_kind(self):
+        # "@still" 로 찾는다. 레이어 이름은 이미지 파일명이라 고정돼 있지 않다.
+        by_name = {c["name"]: c for c in self.result["built"]}
+        for i, comp_name in enumerate(self.COMPS, start=1):
+            stills = [l for l in by_name[comp_name]["layers"]
+                      if str(l["source"] or "").startswith("/proj/drop/images/")]
+            self.assertEqual(len(stills), 1, comp_name)
+            self.assertEqual(stills[0]["source"], f"/proj/drop/images/0{i}.png")
+
+    def test_title_selector_finds_text_layer_by_kind(self):
+        by_name = {c["name"]: c for c in self.result["built"]}
+        for comp_name, title in zip(self.COMPS, self.TITLES):
+            texts = [l["text"] for l in by_name[comp_name]["layers"]
+                     if l["text"] is not None]
+            self.assertIn(title, texts)
+
+    def test_extra_still_is_left_alone_and_reported(self):
+        # 정리 안 된 여분 스틸이 있는 컴프는 건드리지 않고 경고만 남긴다.
+        leftover = [c for c in self.result["built"]
+                    if c["name"] == "Change - Things 2"][0]
+        sources = [l["source"] for l in leftover["layers"]]
+        self.assertIn("u3887476322_leftover_df845f19.png", sources)
+        self.assertTrue(
+            [line for line in self.result["log"]
+             if "still 레이어가 2개" in line],
+            "여분 스틸에 대한 경고가 없습니다",
+        )
+
+    def test_master_audio_replaces_episode_track(self):
+        audio = next(l for l in self.main["layers"] if l["name"] == "ep07_full.wav")
+        self.assertEqual(audio["source"], "/proj/drop/master.wav")
+        self.assertAlmostEqual(audio["outPoint"], self.main["duration"], places=4)
+
+    def test_main_overlays_survive(self):
+        for name in ("LOGO.png", "AUDIO SPECTRUM", "146383_overlay.mp4",
+                     "Shape Layer 1", "Song Title", "tagline"):
+            self.assertIn(name, self.names)
+
+    def test_slots_go_to_the_bottom_of_the_stack(self):
+        # 이 템플릿은 곡 컴프가 맨 아래에 깔리고 그 위에 로고·스펙트럼·텍스트가
+        # 얹힌다. AE 의 layers.add() 는 맨 위에 넣으므로 되돌려야 한다.
+        slots = [i for i, n in enumerate(self.names) if n.startswith("Change")]
+        overlays = [self.names.index(n) for n in
+                    ("LOGO.png", "AUDIO SPECTRUM", "Song Title", "tagline")]
+        self.assertLess(max(overlays), min(slots))
+
+    def test_slots_are_placed_at_cue_times(self):
+        starts = [l["startTime"] for l in self.main["layers"]
+                  if l["name"].startswith("Change")]
+        self.assertEqual(starts, sorted(starts))
+        self.assertAlmostEqual(starts[0], 0.0, places=6)
+
+    def test_renders_the_main_comp_only(self):
+        queue = self.result["renderQueue"]
+        self.assertEqual(len(queue), 1)
+        self.assertEqual(queue[0]["comp"], "PL_MAIN")
+
+
+@unittest.skipUnless(NODE, "node 가 없어 ExtendScript 검증을 건너뜁니다")
 class TestDumpTemplate(unittest.TestCase):
     """AE 에서 직접 돌리는 단독 구조 리포트 스크립트."""
 

@@ -35,9 +35,11 @@ def stills_to_segments(
     """AE 없이 정지 이미지만으로 곡별 클립을 만든다 (테스트/폴백용)."""
     seg_dir = project.work / "segments"
     seg_dir.mkdir(parents=True, exist_ok=True)
-    gap_by_index: dict[int, float] = {}
+    # 클립 길이는 타임라인의 '다음 곡까지의 간격'에서 가져온다. 오디오를 직접
+    # 합쳐 넣는 경우 곡별 파일이 없어 track.duration 이 비어 있기 때문이다.
+    span_by_index: dict[int, float] = {}
     for seg in timeline.segments:
-        gap_by_index.setdefault(seg.index, seg.gap_after)
+        span_by_index.setdefault(seg.index, seg.step)
     width = int(cfg.get("video.width", 1920))
     height = int(cfg.get("video.height", 1080))
     fps = cfg.get("video.fps", 24)
@@ -47,10 +49,10 @@ def stills_to_segments(
         image = project.path(track.image)
         if image is None or not image.is_file():
             raise RenderError(f"트랙 {track.index} 의 이미지가 없습니다.")
-        if track.duration is None:
-            raise RenderError(f"트랙 {track.index} 의 길이를 모릅니다.")
+        length = span_by_index.get(track.index)
+        if length is None:
+            raise RenderError(f"트랙 {track.index} 이 타임라인에 없습니다.")
         dst = seg_dir / f"{track.index:02d}.mp4"
-        length = track.duration + gap_by_index.get(track.index, 0.0)
         print(f"  [{track.index:02d}] 스틸 클립 생성 ({length:.1f}s)")
         ffmpeg.run([
             "-loop", "1", "-i", str(image),

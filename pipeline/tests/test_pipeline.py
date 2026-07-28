@@ -9,7 +9,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from plpipe.audio import Timeline, build_timeline  # noqa: E402
+from plpipe.audio import (  # noqa: E402
+    Timeline,
+    build_timeline,
+    build_timeline_from_cues,
+    exact_fps,
+    snap_up,
+)
+from plpipe.cue import CueError, Silence, cues_from_silences  # noqa: E402
 from plpipe.ffmpeg import parse_loudnorm_json  # noqa: E402
 from plpipe.metadata import (  # noqa: E402
     build_chapters,
@@ -184,6 +191,98 @@ class TestFrameAlignment(unittest.TestCase):
             abs(round(seg.step * fps) / fps - seg.step) for seg in tight.segments
         )
         self.assertAlmostEqual(aligned_drift, 0.0, places=6)
+
+
+class TestNtscFrameRates(unittest.TestCase):
+    """29.97 같은 표기는 실제로 30000/1001 이다."""
+
+    def test_rounded_rates_become_exact_fractions(self):
+        self.assertAlmostEqual(exact_fps(29.97), 30000 / 1001, places=12)
+        self.assertAlmostEqual(exact_fps(23.976), 24000 / 1001, places=12)
+        self.assertAlmostEqual(exact_fps(59.94), 60000 / 1001, places=12)
+
+    def test_integer_rates_pass_through(self):
+        for rate in (24, 25, 30, 50, 60):
+            self.assertEqual(exact_fps(rate), rate)
+
+    def test_snapping_uses_the_exact_rate(self):
+        exact = 30000 / 1001
+        snapped = snap_up(100.0, 29.97)
+        frames = snapped * exact
+        self.assertAlmostEqual(frames, round(frames), places=6)
+
+
+class TestCueDetection(unittest.TestCase):
+    """이미 합쳐진 오디오에서 곡 경계를 뽑는 계산."""
+
+    def test_boundaries_land_in_the_middle_of_silences(self):
+        silences = [Silence(0.0, 2.0), Silence(23.0, 24.2), Silence(51.2, 52.4)]
+        cues = cues_from_silences(silences, total=100.0, expected=3)
+        self.assertEqual(cues, [2.0, 23.6, 51.8])
+
+    def test_leading_silence_becomes_the_first_cue(self):
+        cues = cues_from_silences([Silence(0.0, 3.5), Silence(60.0, 61.0)],
+                                  total=120.0, expected=2)
+        self.assertEqual(cues[0], 3.5)
+
+    def test_trailing_silence_is_not_a_boundary(self):
+        silences = [Silence(30.0, 31.0), Silence(90.0, 100.0)]
+        cues = cues_from_silences(silences, total=100.0, expected=2)
+        self.assertEqual(len(cues), 2)
+        self.assertEqual(cues, [0.0, 30.5])
+
+    def test_extra_silences_pick_the_longest(self):
+        # 곡 안의 짧은 정적은 무시하고 곡 사이의 긴 무음을 고른다.
+        silences = [
+            Silence(20.0, 20.5),    # 곡 안의 짧은 정적
+            Silence(40.0, 42.0),    # 진짜 경계
+            Silence(70.0, 70.4),    # 곡 안의 짧은 정적
+            Silence(95.0, 97.0),    # 진짜 경계
+        ]
+        cues = cues_from_silences(silences, total=150.0, expected=3)
+        self.assertEqual(cues, [0.0, 41.0, 96.0])
+
+    def test_too_few_boundaries_is_an_error(self):
+        with self.assertRaises(CueError) as ctx:
+            cues_from_silences([Silence(30.0, 31.0)], total=100.0, expected=5)
+        self.assertIn("찾지 못했습니다", str(ctx.exception))
+
+
+class TestCueTimeline(unittest.TestCase):
+    """검출한 경계로 만드는 타임라인."""
+
+    def _timeline(self, cues, total, fps=30000 / 1001):
+        ts = tracks([None] * len(cues))
+        for t in ts:
+            t.duration = 1.0  # 경계 기반이라 실제로는 안 쓰인다
+        return build_timeline_from_cues(sequence(ts, 0), cues, total, fps=fps)
+
+    def test_first_segment_starts_at_zero(self):
+        tl = self._timeline([2.0, 30.0, 60.0], 90.0)
+        self.assertEqual(tl.segments[0].start, 0.0)
+
+    def test_segments_are_contiguous_with_no_gaps(self):
+        tl = self._timeline([2.0, 30.0, 60.0], 90.0)
+        for a, b in zip(tl.segments, tl.segments[1:]):
+            self.assertAlmostEqual(a.end, b.start, places=9)
+        self.assertAlmostEqual(tl.segments[-1].end, tl.total, places=9)
+
+    def test_boundaries_land_on_frames(self):
+        fps = 30000 / 1001
+        tl = self._timeline([2.0, 30.3, 61.7], 91.4)
+        for seg in tl.segments:
+            for value in (seg.start, seg.end):
+                frames = value * fps
+                self.assertAlmostEqual(frames, round(frames), places=6)
+
+    def test_out_of_order_cues_are_rejected(self):
+        with self.assertRaises(ValueError):
+            self._timeline([0.0, 50.0, 40.0], 90.0)
+
+    def test_cue_count_must_match_track_count(self):
+        ts = tracks([180.0, 180.0])
+        with self.assertRaises(ValueError):
+            build_timeline_from_cues(sequence(ts, 0), [0.0, 30.0, 60.0], 90.0)
 
 
 class TestMetadata(unittest.TestCase):

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from . import ae as ae_mod
 from . import audio as audio_mod
+from . import cue as cue_mod
 from . import ffmpeg, metadata, render
 from .config import Config, ConfigError, EXAMPLE_NAME
 from .project import (
@@ -42,7 +43,26 @@ def _timeline(proj: Project) -> audio_mod.Timeline:
     return audio_mod.Timeline.from_dict(proj.timeline)
 
 
+def _manual_master(proj: Project, cfg) -> Path | None:
+    """직접 합쳐서 넣는 경우의 마스터 오디오 경로."""
+    if cfg.get("audio.source", "pipeline") != "manual":
+        return None
+    raw = cfg.get("audio.master", "drop/master.wav")
+    path = Path(str(raw)).expanduser()
+    if not path.is_absolute():
+        path = proj.root / path
+    return path
+
+
 def _master(proj: Project, cfg) -> Path:
+    manual = _manual_master(proj, cfg)
+    if manual is not None:
+        if not manual.is_file():
+            raise ProjectError(
+                f"마스터 오디오가 없습니다: {manual}\n"
+                "합쳐둔 오디오 파일을 그 위치에 두거나 [audio] master 를 고치세요."
+            )
+        return manual
     fmt = cfg.get("audio.master_format", "wav")
     path = proj.out / f"master.{fmt}"
     if not path.is_file():
@@ -244,14 +264,19 @@ def cmd_ingest(args) -> int:
     n_image = assign(image_files, "image", "이미지")
     proj.save()
 
+    # 오디오를 직접 합쳐서 넣는 경우 곡별 파일은 없어도 된다.
+    # (있으면 경계 검출 결과를 대조하는 데 쓴다.)
+    audio_optional = cfg.get("audio.source", "pipeline") == "manual"
+
     print(f"오디오 {n_audio}/{len(proj.tracks)} · 이미지 {n_image}/{len(proj.tracks)} 배정")
     missing_audio = [t.index for t in proj.missing_audio()]
     missing_image = [t.index for t in proj.missing_images()]
     if missing_audio:
-        print(f"  오디오 없음: {missing_audio}")
+        note = " (선택 사항)" if audio_optional else ""
+        print(f"  오디오 없음{note}: {missing_audio}")
     if missing_image:
         print(f"  이미지 없음: {missing_image}")
-    if missing_audio or missing_image:
+    if missing_image or (missing_audio and not audio_optional):
         return 1
     proj.mark("ingest")
     return 0
@@ -268,8 +293,54 @@ def _title_from(path: Path) -> str:
     return stripped.replace("_", " ").strip() or stem
 
 
+def cmd_cue(args) -> int:
+    """이미 합쳐진 마스터 오디오에서 곡 경계를 찾는다."""
+    cfg, proj = _load(args)
+    master = _master(proj, cfg)
+    fps = float(cfg.get("video.fps", 24))
+
+    threshold = args.threshold if args.threshold is not None else float(
+        cfg.get("audio.cue_threshold_db", -45.0))
+    min_silence = args.min_silence if args.min_silence is not None else float(
+        cfg.get("audio.cue_min_silence", 0.4))
+
+    print(f"곡 경계 검출: {master.name}  (임계 {threshold}dB, 최소 무음 {min_silence}s)")
+    cues, total = cue_mod.detect(
+        master, len(proj.tracks), threshold_db=threshold, min_silence=min_silence
+    )
+
+    warnings = cue_mod.compare_with_tracks(
+        cues, total, [t.duration for t in proj.tracks]
+    )
+
+    items = list(proj.sequence(0))
+    timeline = audio_mod.build_timeline_from_cues(items, cues, total, fps=fps)
+    proj.timeline = timeline.to_dict()
+    proj.save()
+
+    print(f"\n{'#':>3}  {'시작':>10}  {'구간':>9}  제목")
+    for seg in timeline.segments:
+        print(f"{seg.index:>3}  {_hms(seg.start):>10}  "
+              f"{seg.duration:>8.1f}s  {seg.title}")
+    print(f"\n총 길이 {_hms(timeline.total)}")
+
+    for warning in warnings:
+        print(f"경고: {warning}")
+    if warnings:
+        print("\n경계가 틀렸으면 --threshold / --min-silence 를 조정하거나,")
+        print("manifest.json 의 timeline.segments 에서 start 를 직접 고치세요.")
+    proj.mark("cue")
+    return 0
+
+
 def cmd_audio(args) -> int:
     cfg, proj = _load(args)
+
+    if cfg.get("audio.source", "pipeline") == "manual":
+        # 오디오를 직접 합쳐서 넣는 경우: 합치지 않고 경계만 찾는다.
+        print("오디오 소스가 'manual' 입니다. 합치지 않고 곡 경계만 검출합니다.")
+        return cmd_cue(args)
+
     if proj.missing_audio():
         raise ProjectError("오디오가 배정되지 않은 트랙이 있습니다. `plpipe ingest` 를 실행하세요.")
 
@@ -442,8 +513,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     add("ingest", cmd_ingest, "drop 폴더의 파일을 트랙에 배정한다")
 
+    def add_cue_options(parser_obj):
+        parser_obj.add_argument("--threshold", type=float,
+                                help="무음으로 볼 기준 dB (기본 -45)")
+        parser_obj.add_argument("--min-silence", type=float,
+                                help="곡 경계로 볼 최소 무음 길이(초, 기본 0.4)")
+
     p_audio = add("audio", cmd_audio, "정규화 + 타임라인 + 마스터 오디오")
     p_audio.add_argument("--force", action="store_true", help="정규화를 다시 수행")
+    add_cue_options(p_audio)
+
+    p_cue = add("cue", cmd_cue, "합쳐진 마스터 오디오에서 곡 경계를 찾는다")
+    add_cue_options(p_cue)
 
     p_ae = sub.add_parser("ae", help="After Effects 관련")
     ae_sub = p_ae.add_subparsers(dest="ae_command", required=True)
@@ -462,6 +543,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run = add("run", cmd_run, "ingest부터 meta까지 전부 실행")
     p_run.add_argument("--force", action="store_true")
     p_run.add_argument("--skip-ae", action="store_true")
+    add_cue_options(p_run)
 
     return parser
 

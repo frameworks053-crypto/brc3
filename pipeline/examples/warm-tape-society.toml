@@ -1,0 +1,101 @@
+# ── 예시 설정: 곡별 컴프를 손으로 만들어 둔 4K 템플릿 ─────────────
+#
+# `dump_template.jsx` 리포트를 보고 맞춘 설정입니다.
+# 이 템플릿의 특징:
+#   - 곡마다 컴프가 따로 있음 ("Change - Things" 계열) → 복제하지 않고 내용만 교체
+#   - 레이어 이름이 곡 제목·이미지 파일명이라 고정 이름이 없음 → 종류로 찾음
+#   - Main 안에 오디오 스펙트럼·로고·오버레이가 있음 → full 모드 필수
+#   - 오디오는 직접 합쳐서 넣음 → 무음으로 곡 경계 자동 검출
+#
+# 쓰기 전에 확인할 것:
+#   1. slot_comps 를 실제 재생 순서대로, 실제 곡 수만큼 채울 것
+#   2. Main 의 오디오 레이어가 하나뿐인지 (@audio 가 첫 번째를 고름)
+#   3. 곡 컴프에 스틸이 2장 남아 있으면 정리하거나 image_layer 를 "@still:last" 로
+
+[channel]
+name        = "warm tape society"
+title       = "{mood} · {n} tracks for {activity}"
+language    = "ko"
+category_id = 10
+tags = ["neo soul", "r&b", "lofi", "study music", "playlist"]
+
+
+[project]
+track_count = 13
+repeat      = 0        # 30분짜리 한 번 재생
+gap         = 0.0      # 오디오를 직접 합치므로 파이프라인이 간격을 만들지 않음
+crossfade   = 0.0
+lead_in     = 0.0
+lead_out    = 0.0
+
+
+[audio]
+# 이미 합쳐둔 파일을 그대로 쓰고, 곡 경계만 검출한다.
+source = "manual"
+master = "drop/master.wav"
+
+# 곡 사이 무음이 짧거나 페이드로 이어져 있으면 임계값을 올리세요 (-35 등).
+cue_threshold_db = -45.0
+cue_min_silence  = 0.4
+
+
+[video]
+width      = 3840
+height     = 2160
+fps        = 29.97     # 내부적으로 30000/1001 로 계산됨
+crf        = 18
+preset     = "slow"
+audio_bitrate = "320k"
+
+
+[music]
+provider = "manual"
+
+[image]
+provider = "manual"
+# 4K 컴프를 채우려면 이미지도 크게. Midjourney 2944x1648 이면 충분합니다.
+width  = 3840
+height = 2160
+
+
+[ae]
+# Main 안의 오디오 스펙트럼·로고·오버레이가 살아 있어야 하므로 full 이어야 한다.
+# segments 모드로 곡 컴프만 렌더하면 그것들이 전부 빠진다.
+mode = "full"
+
+app      = "C:/Program Files/Adobe/Adobe After Effects 2021/Support Files/AfterFX.exe"
+aerender = "C:/Program Files/Adobe/Adobe After Effects 2021/Support Files/aerender.exe"
+
+project   = "templates/warm-tape-society.aep"
+main_comp = "Main"
+
+# 곡별 컴프를 재생 순서대로. Main 의 레이어 순서와 같게 맞추세요.
+slot_comps = [
+  "Change - Things 21",
+  "Change - Things",
+  "Change - Things 2",
+  "Change - Things 3",
+  "Change - Things 4",
+  "Change - Things 5",
+  "Change - Things 6",
+  "Change - Things 7",
+  "Change - Things 8",
+  "Change - Things 9",
+  "Change - Things 10",
+  "Change - Things 11",
+  "Change - Things 12",
+]
+
+# 레이어 이름이 곡 제목·파일명이라 이름으로 못 찾는다. 종류로 찾는다.
+image_layer = "@still"   # 곡 컴프의 첫 번째 스틸
+title_layer = "@text"    # 곡 컴프의 첫 번째 텍스트
+index_layer = ""         # 트랙 번호 레이어 없음
+audio_layer = "@audio"   # Main 의 오디오 레이어 (ep07_full.wav 자리)
+
+render_settings  = "Best Settings"
+output_module    = "Lossless"
+intermediate_ext = "mov"
+
+
+[paths]
+projects = "projects"

@@ -40,6 +40,16 @@ def run(args: Sequence[str], *, quiet: bool = True) -> subprocess.CompletedProce
     return proc
 
 
+def run_capture(args: Sequence[str]) -> str:
+    """분석용 실행. 필터가 stderr 로 뱉는 내용을 그대로 돌려준다."""
+    cmd = [_binary("ffmpeg"), "-hide_banner", "-nostdin", *args]
+    proc = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
+    if proc.returncode != 0:
+        tail = "\n".join(proc.stderr.strip().splitlines()[-25:])
+        raise FFmpegError(f"ffmpeg 실패 (exit {proc.returncode}):\n{tail}")
+    return proc.stderr
+
+
 def probe(path: Path) -> dict:
     cmd = [
         _binary("ffprobe"),

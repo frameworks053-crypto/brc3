@@ -26,6 +26,17 @@ lead_out    = 4.0
 
 
 [audio]
+# pipeline : 곡별 파일을 정규화해서 파이프라인이 합친다 (기본)
+# manual   : 이미 합쳐둔 오디오 파일을 그대로 쓴다.
+#            이때는 무음을 찾아 곡 경계를 자동 검출한다 (`plpipe cue`).
+source = "pipeline"
+# source = "manual" 일 때 쓸 파일 (프로젝트 폴더 기준 상대경로).
+master = "drop/master.wav"
+
+# 곡 경계 검출 설정. 경계가 안 잡히면 임계값을 올리거나(-30) 최소 무음을 줄이세요.
+cue_threshold_db = -45.0
+cue_min_silence  = 0.4
+
 # YouTube 라우드니스 타깃. -14 LUFS 가 표준.
 target_lufs      = -14.0
 true_peak        = -1.0
@@ -113,7 +124,18 @@ project = "templates/playlist.aep"
 # 템플릿 안의 이름 매핑. `plpipe ae inspect` 로 실제 이름을 먼저 확인하세요.
 main_comp   = "MAIN"          # 최종 출력 컴프 (mode="full" 일 때 사용)
 slot_comp   = "SLOT"          # 곡 하나에 해당하는 프리컴프 (복제 대상)
-image_layer = "IMAGE"         # slot_comp 안에서 이미지가 들어갈 레이어
+
+# 곡별 컴프를 이미 손으로 만들어 뒀다면, slot_comp 를 복제하는 대신
+# 그 컴프들의 이름을 재생 순서대로 적으세요. 내용만 바꾸고 복제하지 않습니다.
+# slot_comps = ["Change - Things 21", "Change - Things", "Change - Things 2"]
+
+# 레이어 선택자. 다음 세 가지 형식을 씁니다.
+#   "IMAGE"       이름이 정확히 일치하는 레이어
+#   "@still"      종류로 찾기 — still | text | audio | footage | image | solid | shape
+#                 뒤에 :last 나 :2 를 붙여 몇 번째인지 지정 ("@text:last")
+#   "#3"          레이어 번호 (스택 순서, 1이 맨 위)
+# 레이어 이름이 곡 제목이나 파일명이라 고정돼 있지 않으면 종류로 찾으세요.
+image_layer = "IMAGE"         # 이미지가 들어갈 레이어
 title_layer = "TITLE"         # 곡 제목 텍스트 레이어 (없으면 "")
 index_layer = "INDEX"         # 트랙 번호 텍스트 레이어 (없으면 "")
 audio_layer = "AUDIO"         # main_comp 안 오디오 레이어 (없으면 "")

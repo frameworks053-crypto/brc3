@@ -224,6 +224,64 @@ function buildScenario() {
   return { main, slot, placeholder };
 }
 
+/* 시나리오 B: 곡별 컴프를 손으로 만들어 둔 템플릿.
+   레이어 이름이 곡 제목과 이미지 파일명 그대로라 고정 이름으로 찾을 수 없고,
+   일부 컴프에는 정리되지 않은 스틸이 2장 들어 있다. 슬롯 컴프를 복제하는
+   대신 기존 컴프의 내용만 바꿔야 한다. */
+function buildExistingScenario() {
+  const titles = ["First thing", "South side", "All week"];
+  const compNames = ["Change - Things 21", "Change - Things", "Change - Things 2"];
+  const comps = [];
+
+  for (let i = 0; i < titles.length; i++) {
+    const layers = [
+      // 텍스트 레이어 이름이 곡 제목 그대로다.
+      makeLayer({ name: titles[i], type: TextLayer, text: titles[i] }),
+      makeLayer({
+        name: `u3887476322_scene_${i}_a34d425c.png`,
+        source: makeFootage({ name: `u3887476322_scene_${i}_a34d425c.png`,
+                              width: 2944, height: 1648 }),
+      }),
+    ];
+    // 세 번째 컴프에는 정리 안 된 여분 스틸이 하나 더 있다.
+    if (i === 2) {
+      layers.push(makeLayer({
+        name: "u3887476322_leftover_df845f19.png",
+        source: makeFootage({ name: "u3887476322_leftover_df845f19.png" }),
+      }));
+    }
+    comps.push(makeComp({
+      name: compNames[i], width: 3840, height: 2160,
+      frameRate: 30000 / 1001, duration: 3629.997, layers,
+    }));
+  }
+
+  const scratch = makeFootage({ name: "ep07_full.wav", duration: 1774,
+                                hasAudio: true, hasVideo: false });
+  const mainLayers = [
+    makeLayer({ name: "LOGO.png", source: makeFootage({ name: "LOGO.png" }),
+                anim: { "ADBE Opacity": "keys" } }),
+    makeLayer({ name: "146383_overlay.mp4",
+                source: makeFootage({ name: "146383_overlay.mp4", duration: 6.23 }) }),
+    makeLayer({ name: "Shape Layer 1", type: ShapeLayer }),
+    makeLayer({ name: "AUDIO SPECTRUM",
+                source: makeFootage({ name: "Dark Gray Solid 1", solid: true }) }),
+    makeLayer({ name: "ep07_full.wav", source: scratch }),
+    makeLayer({ name: "Song Title", type: TextLayer, text: "Song Title" }),
+    makeLayer({ name: "tagline", type: TextLayer, text: "analog warmth" }),
+  ];
+  for (const comp of comps) {
+    mainLayers.push(makeLayer({ name: comp.name, source: comp }));
+  }
+  const main = makeComp({
+    name: "Main", width: 3840, height: 2160,
+    frameRate: 30000 / 1001, duration: 1773.974, layers: mainLayers,
+  });
+
+  state.items = [main, ...comps, scratch];
+  return { main, comps };
+}
+
 // AE 의 ItemCollection: .length = N, [1]..[N] 로 1-기반 접근.
 function itemCollection() {
   const coll = {
@@ -326,9 +384,57 @@ const [mode, scriptPath] = process.argv.slice(2);
 const source = fs.readFileSync(scriptPath, "utf8");
 
 installApp();
-const scenario = buildScenario();
+const scenario = mode === "build-existing"
+  ? buildExistingScenario()
+  : buildScenario();
 
-if (mode === "build" || mode === "build-full") {
+if (mode === "build-existing") {
+  // 곡별 컴프가 이미 있는 템플릿. 선택자로 레이어를 찾는다.
+  const compNames = ["Change - Things 21", "Change - Things", "Change - Things 2"];
+  const titles = ["Neon Rain", "Late Transfer", "Blue Hour"];
+  const cues = [0, 181.2812, 385.9896];       // 프레임 정렬된 곡 경계
+  const total = 581.1146;
+
+  const slots = compNames.map((name, i) => ({
+    index: i + 1,
+    name: "PL_SLOT_" + String(i + 1).padStart(2, "0"),
+    existing: name,
+    title: titles[i],
+    label: String(i + 1).padStart(2, "0"),
+    image: "/proj/drop/images/0" + (i + 1) + ".png",
+    duration: (i + 1 < cues.length ? cues[i + 1] : total) - cues[i],
+    output: "/proj/work/segments/0" + (i + 1) + ".mov",
+  }));
+
+  globalThis.PLPIPE_JOB = {
+    mode: "full",
+    project: "/tpl/lofi.aep",
+    save_as: "/proj/work/ae/ep08.aep",
+    names: {
+      main_comp: "Main",
+      slot_comp: "",
+      // 레이어 이름이 제목·파일명이라 종류로 찾는다.
+      image_layer: "@still",
+      title_layer: "@text",
+      index_layer: "",
+      audio_layer: "@audio",
+    },
+    video: { width: 3840, height: 2160, fps: 30000 / 1001 },
+    slots,
+    main: {
+      name: "PL_MAIN",
+      duration: total,
+      audio: "/proj/drop/master.wav",
+      output: "/proj/work/ae/ep08.mov",
+      placements: slots.map((s, i) => ({
+        slot: s.existing,
+        start: cues[i],
+        end: i + 1 < cues.length ? cues[i + 1] : total,
+      })),
+    },
+    render: { settings: "Best Settings", module: "Lossless" },
+  };
+} else if (mode === "build" || mode === "build-full") {
   const slots = [];
   // 실제 파이프라인이 내는 것과 같은 모양: 프레임 정렬된 길이.
   const durations = [181.291666, 204.708333, 195.125];
@@ -388,8 +494,10 @@ if (mode === "build" || mode === "build-full") {
 (0, eval)(source);
 
 // ── 결과 덤프 ──────────────────────────────────────────────
+const slotNames = ((globalThis.PLPIPE_JOB && globalThis.PLPIPE_JOB.slots) || [])
+  .map((s) => s.existing || s.name);
 const built = state.items
-  .filter((it) => it instanceof CompItem && /^PL_SLOT_/.test(it.name))
+  .filter((it) => it instanceof CompItem && slotNames.indexOf(it.name) >= 0)
   .map((comp) => ({
     name: comp.name,
     duration: comp.duration,
@@ -432,8 +540,10 @@ process.stdout.write(JSON.stringify({
   savedTo: state.savedTo,
   closed: state.closed,
   report: state.report,
-  originalSlotLayerCount: scenario.slot.layers.length,
-  originalSlotImageSource: scenario.slot.layers._list
-    .filter((l) => l.name === "IMAGE")
-    .map((l) => l.source.name)[0],
+  log: state.log,
+  originalSlotImageSource: scenario.slot
+    ? scenario.slot.layers._list
+        .filter((l) => l.name === "IMAGE")
+        .map((l) => l.source.name)[0]
+    : null,
 }, null, 2));

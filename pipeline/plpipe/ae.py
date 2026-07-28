@@ -112,11 +112,6 @@ def build_job(
         )
 
     fps = float(cfg.get("video.fps", 24))
-    # 구간별 간격은 프레임 정렬 때문에 곡마다 조금씩 다르다. 같은 곡은 회차가
-    # 달라도 같은 값이므로 트랙 번호로 한 번만 뽑아 쓴다.
-    gap_by_index: dict[int, float] = {}
-    for seg in timeline.segments:
-        gap_by_index.setdefault(seg.index, seg.gap_after)
 
     ae_dir = project.work / "ae"
     seg_dir = project.work / "segments"
@@ -125,32 +120,49 @@ def build_job(
 
     ext = ae.get("intermediate_ext", "mov")
 
+    # 곡별 컴프가 이미 템플릿에 있으면 복제하지 않고 그 안의 내용만 바꾼다.
+    existing = list(ae.get("slot_comps", []) or [])
+    if existing and len(existing) != len(project.tracks):
+        raise AEError(
+            f"[ae] slot_comps 에 컴프 이름이 {len(existing)}개 있는데 "
+            f"트랙은 {len(project.tracks)}개입니다. 개수를 맞춰주세요."
+        )
+
+    # 구간 길이는 트랙 번호로 조회한다 (cue 모드에서는 gap 이 0).
+    span_by_index: dict[int, float] = {}
+    for seg in timeline.segments:
+        span_by_index.setdefault(seg.index, seg.step)
+
     slots: list[dict[str, Any]] = []
-    for track in project.tracks:
+    for position, track in enumerate(project.tracks):
         image = project.path(track.image)
         if image is None or not image.is_file():
             raise AEError(f"트랙 {track.index} 의 이미지가 없습니다.")
-        if track.duration is None:
-            raise AEError(f"트랙 {track.index} 의 길이를 모릅니다.")
-        # segments 모드에서 클립 길이는 '다음 곡까지의 간격'과 같아야 한다.
-        clip_duration = track.duration + gap_by_index.get(track.index, 0.0)
-        slots.append({
+        span = span_by_index.get(track.index)
+        if span is None:
+            raise AEError(f"트랙 {track.index} 이 타임라인에 없습니다.")
+        slot: dict[str, Any] = {
             "index": track.index,
             "name": f"PL_SLOT_{track.index:02d}",
             "title": track.display_title,
             "label": f"{track.index:02d}",
             "image": str(image.resolve()),
-            "duration": round(clip_duration if mode == "segments" else track.duration, 3),
+            # segments 모드의 클립 길이는 '다음 곡까지의 간격'과 같아야 한다.
+            "duration": round(span if mode == "segments" else (track.duration or span), 3),
             "output": str((seg_dir / f"{track.index:02d}.{ext}").resolve()),
-        })
+        }
+        if existing:
+            slot["existing"] = existing[position]
+        slots.append(slot)
 
+    slot_name_by_index = {s["index"]: s.get("existing") or s["name"] for s in slots}
     main = {
         "name": "PL_MAIN",
         "duration": timeline.total,
         "audio": str(master_audio.resolve()) if master_audio else "",
         "output": str((project.work / "ae" / f"{project.slug}.{ext}").resolve()),
         "placements": [
-            {"slot": f"PL_SLOT_{seg.index:02d}", "start": seg.start,
+            {"slot": slot_name_by_index[seg.index], "start": seg.start,
              "end": seg.end + max(0.0, seg.gap_after)}
             for seg in timeline.segments
         ],

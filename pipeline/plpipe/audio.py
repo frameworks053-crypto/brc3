@@ -11,10 +11,25 @@ from . import ffmpeg
 from .project import Project, Track
 
 
+# NTSC 계열 프레임레이트는 실제로 1000/1001 배다. 설정에 29.97 처럼
+# 반올림한 값을 적어도 정확한 분수로 계산해야 긴 영상에서 어긋나지 않는다.
+_NTSC = {23.976: 24000 / 1001, 29.97: 30000 / 1001,
+         47.952: 48000 / 1001, 59.94: 60000 / 1001}
+
+
+def exact_fps(fps: float) -> float:
+    """29.97 같은 반올림 표기를 정확한 NTSC 분수로 바꾼다."""
+    for rounded, exact in _NTSC.items():
+        if abs(fps - rounded) < 0.01:
+            return exact
+    return fps
+
+
 def snap_up(seconds: float, fps: float) -> float:
     """프레임 경계로 올림한다. AE 는 컴프 길이를 프레임 단위로만 잡는다."""
     if fps <= 0:
         return seconds
+    fps = exact_fps(fps)
     return math.ceil(seconds * fps - 1e-6) / fps
 
 
@@ -150,6 +165,56 @@ def build_timeline(
         gap=gap,
         crossfade=crossfade,
         fps=fps,
+    )
+
+
+def build_timeline_from_cues(
+    items: Sequence[tuple[int, Track]],
+    cues: Sequence[float],
+    total: float,
+    *,
+    fps: float = 0.0,
+) -> Timeline:
+    """이미 합쳐진 마스터 오디오의 곡 시작 시각으로 타임라인을 만든다.
+
+    파이프라인이 오디오를 합치지 않으므로 간격을 계산할 게 없다. 각 구간은
+    '이 곡이 시작하는 순간부터 다음 곡이 시작하는 순간까지' 이고, 첫 구간은
+    0 초까지, 마지막 구간은 끝까지 늘려서 화면이 비는 곳이 없게 한다.
+    경계는 프레임에 맞춘다.
+    """
+    if len(cues) != len(items):
+        raise ValueError(
+            f"곡 경계 {len(cues)}개가 구간 {len(items)}개와 맞지 않습니다."
+        )
+
+    edges = [snap_up(c, fps) for c in cues]
+    edges[0] = 0.0
+    for i in range(1, len(edges)):
+        if edges[i] <= edges[i - 1]:
+            raise ValueError(
+                f"{i + 1}번 곡 경계({cues[i]:.2f}s)가 앞 구간보다 앞서거나 같습니다."
+            )
+    end_total = snap_up(total, fps)
+
+    segments: list[Segment] = []
+    for order, (pass_no, track) in enumerate(items):
+        start = edges[order]
+        end = edges[order + 1] if order + 1 < len(edges) else end_total
+        segments.append(
+            Segment(
+                order=order,
+                pass_no=pass_no,
+                index=track.index,
+                title=track.display_title,
+                start=start,
+                end=end,
+                gap_after=0.0,
+            )
+        )
+
+    return Timeline(
+        segments=tuple(segments), total=end_total,
+        lead_in=0.0, lead_out=0.0, gap=0.0, crossfade=0.0, fps=fps,
     )
 
 

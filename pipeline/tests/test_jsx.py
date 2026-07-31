@@ -324,3 +324,55 @@ class TestExtendScriptCompatibility(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+@unittest.skipUnless(NODE, "node 가 없어 ExtendScript 검증을 건너뜁니다")
+class TestSwapImagesScript(unittest.TestCase):
+    """AE 에서 바로 실행하는 이미지 교체 스크립트.
+
+    설치나 설정 없이 쓰는 경로라, 이미지가 엉뚱한 곡에 붙으면 조용히
+    잘못된 영상이 나온다. 매칭 결과를 직접 확인한다.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        harness = ROOT / "tests" / "ae_mock" / "swap_harness.mjs"
+        proc = subprocess.run(
+            [NODE, str(harness), str(SCRIPTS / "swap_images.jsx")],
+            capture_output=True, text=True, errors="replace",
+        )
+        if proc.returncode != 0:
+            raise AssertionError(f"하네스 실행 실패:\n{proc.stderr[-3000:]}")
+        cls.result = json.loads(proc.stdout)
+        cls.rows = cls.result["rows"]
+        cls.mapped = [r for r in cls.rows if r["image"]]
+
+    def test_images_are_ordered_by_leading_number(self):
+        # 폴더에서 읽은 순서는 뒤죽박죽이다. "10-*" 이 "2-*" 보다 뒤여야 한다.
+        numbers = [int(r["image"].split("-")[0].split(".")[0]) for r in self.mapped]
+        self.assertEqual(numbers, sorted(numbers))
+        self.assertEqual(numbers, list(range(1, 14)))
+
+    def test_intro_is_excluded_by_its_short_placement(self):
+        intro = self.rows[0]
+        self.assertEqual(intro["comp"], "Intro")
+        self.assertEqual(intro["image"], "")
+        self.assertIn("길이", intro["why"])
+
+    def test_disabled_leftover_is_excluded(self):
+        stale = self.rows[-1]
+        self.assertEqual(stale["image"], "")
+        self.assertIn("꺼져", stale["why"])
+
+    def test_every_song_gets_exactly_one_image(self):
+        self.assertEqual(len(self.mapped), 13)
+        self.assertEqual(len({r["image"] for r in self.mapped}), 13)
+
+    def test_songs_are_listed_in_timeline_order(self):
+        names = [r["comp"] for r in self.mapped]
+        self.assertEqual(names[0], "Change - Things")
+        self.assertEqual(names[-1], "Change - Things 13")
+
+    def test_status_line_reports_both_counts(self):
+        self.assertIn("13개", self.result["status"])
+        self.assertIn("13장", self.result["status"])

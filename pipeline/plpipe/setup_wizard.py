@@ -99,7 +99,11 @@ def ask_yes(prompt: str, default: bool = True, *, assume_yes: bool = False) -> b
 
 # ── 탐색 ────────────────────────────────────────────────────
 def find_templates(root: Path) -> list[Path]:
-    """작업 폴더 아래에서 .aep 를 찾는다. 자동저장 폴더는 뺀다."""
+    """작업 폴더 아래에서 .aep 를 찾는다.
+
+    자동저장본은 편집 중 스냅샷이라 후보에서 뺀다. 다만 그것밖에 없으면
+    아무것도 못 찾았다고 하는 것보다는 보여주고 경고하는 게 낫다.
+    """
     found: list[Path] = []
     for path in sorted(root.rglob("*.aep")):
         parts = {p.lower() for p in path.parts}
@@ -108,7 +112,9 @@ def find_templates(root: Path) -> list[Path]:
         if "projects" in parts:      # 파이프라인이 만든 결과물
             continue
         found.append(path)
-    return found
+
+    real = [p for p in found if not looks_like_autosave(p)]
+    return real or found
 
 
 def guess_main_comp(comps: list[dict[str, Any]]) -> str:

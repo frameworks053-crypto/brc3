@@ -48,6 +48,24 @@ class TestTemplateDiscovery(unittest.TestCase):
     def test_no_templates_returns_empty(self):
         self.assertEqual(wiz.find_templates(self.root), [])
 
+    def test_autosave_copied_into_the_folder_is_not_offered(self):
+        # 자동저장본을 작업 폴더로 복사해 와도 후보에 넣지 않는다.
+        self.touch("aep/warm tape society.aep")
+        self.touch("default auto-save 20.aep")
+        self.assertEqual([p.name for p in wiz.find_templates(self.root)],
+                         ["warm tape society.aep"])
+
+    def test_autosave_is_offered_when_it_is_all_there_is(self):
+        # 아무것도 못 찾았다고 하는 것보다는 보여주고 경고하는 게 낫다.
+        self.touch("default auto-save 20.aep")
+        self.assertEqual([p.name for p in wiz.find_templates(self.root)],
+                         ["default auto-save 20.aep"])
+
+    def test_finds_templates_in_a_subfolder(self):
+        self.touch("aep/warm tape society.aep")
+        self.assertEqual([p.name for p in wiz.find_templates(self.root)],
+                         ["warm tape society.aep"])
+
 
 class TestDerivingFromTemplate(unittest.TestCase):
     def setUp(self):

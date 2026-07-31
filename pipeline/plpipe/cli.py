@@ -227,7 +227,7 @@ def cmd_setup(args) -> int:
         info["precomps"] = wiz.precomps_in(main)
         info["width"] = main.get("width", info["width"])
         info["height"] = main.get("height", info["height"])
-        info["fps"] = main.get("fps", info["fps"])
+        info["fps"] = wiz.tidy_fps(float(main.get("fps", info["fps"])))
         info["has_audio_layer"] = any(
             l.get("kind") == "audio" for l in main.get("layers", []))
     print(f"  → {main_comp}  {info['width']}x{info['height']} @{info['fps']}fps\n")

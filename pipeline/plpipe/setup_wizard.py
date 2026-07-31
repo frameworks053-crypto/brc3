@@ -152,6 +152,20 @@ def dump_has_timing(dump: dict[str, Any]) -> bool:
     return False
 
 
+# AE 가 돌려주는 프레임레이트는 29.9700012207031 처럼 float 오차가 섞여 있다.
+# 설정 파일에는 사람이 알아보는 표기로 적는다. 어차피 계산할 때 정확한
+# 분수(30000/1001)로 되돌리므로 정밀도가 깎이지 않는다.
+_COMMON_FPS = (23.976, 24.0, 25.0, 29.97, 30.0, 47.952, 48.0, 50.0, 59.94, 60.0)
+
+
+def tidy_fps(value: float) -> float:
+    """29.9700012207031 → 29.97"""
+    for known in _COMMON_FPS:
+        if abs(value - known) < 0.01:
+            return known
+    return round(value, 3)
+
+
 def _median(values: Sequence[float]) -> float:
     ordered = sorted(values)
     mid = len(ordered) // 2
@@ -371,7 +385,7 @@ def derive_from_dump(dump: dict[str, Any]) -> dict[str, Any]:
         "main_comp": main_name,
         "width": main.get("width", 1920),
         "height": main.get("height", 1080),
-        "fps": main.get("fps", 24),
+        "fps": tidy_fps(float(main.get("fps", 24))),
         "precomps": precomps_in(main),
         "render_settings": render_settings,
         "output_module": output_module,

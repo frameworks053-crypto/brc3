@@ -74,6 +74,13 @@ class TestDerivingFromTemplate(unittest.TestCase):
     def test_picks_the_comp_holding_the_precomps_as_main(self):
         self.assertEqual(self.info["main_comp"], "Main")
 
+    def test_float_noise_in_frame_rate_is_tidied(self):
+        # AE 는 29.9700012207031 처럼 오차 섞인 값을 돌려준다.
+        self.assertEqual(wiz.tidy_fps(29.9700012207031), 29.97)
+        self.assertEqual(wiz.tidy_fps(23.9760000705719), 23.976)
+        self.assertEqual(wiz.tidy_fps(24.0), 24.0)
+        self.assertEqual(wiz.tidy_fps(12.3456), 12.346)
+
     def test_reads_resolution_and_frame_rate_from_main(self):
         self.assertEqual((self.info["width"], self.info["height"]), (3840, 2160))
         self.assertEqual(self.info["fps"], 29.97)

@@ -154,14 +154,26 @@ def cmd_setup(args) -> int:
     (root / "projects").mkdir(exist_ok=True)
 
     # 1. AE 템플릿 찾기 ─────────────────────────────────────
-    candidates = wiz.find_templates(root)
-    if not candidates:
-        print(f"이 폴더에서 .aep 파일을 찾지 못했습니다.\n"
-              f"AE 템플릿을 {root / 'templates'} 안에 넣고 다시 실행해 주세요.")
-        return 1
-    rels = [str(p.relative_to(root)) for p in candidates]
-    chosen = wiz.confirm_or_choose("AE 템플릿", rels[0], rels, assume_yes=yes)
-    template = candidates[rels.index(chosen)]
+    # --template 로 직접 지정하면 작업 폴더 밖에 있어도 된다. 원본을
+    # 옮기거나 복사하지 않고 있는 자리에서 그대로 쓸 수 있다.
+    if args.template:
+        template = Path(args.template).expanduser()
+        if not template.is_file():
+            print(f".aep 파일을 찾지 못했습니다: {template}")
+            return 1
+        print(f"AE 템플릿: {template}")
+    else:
+        candidates = wiz.find_templates(root)
+        if not candidates:
+            print(f"이 폴더에서 .aep 파일을 찾지 못했습니다: {root}\n")
+            print("둘 중 하나로 해결하세요:")
+            print(f"  · .aep 를 {root} 안에 두고 다시 실행")
+            print("  · 또는 있는 자리 그대로 쓰기:")
+            print('      plpipe setup --template "C:/경로/내파일.aep"')
+            return 1
+        rels = [str(p.relative_to(root)) for p in candidates]
+        chosen = wiz.confirm_or_choose("AE 템플릿", rels[0], rels, assume_yes=yes)
+        template = candidates[rels.index(chosen)]
     print()
 
     # 2. 템플릿 구조 읽기 ───────────────────────────────────
@@ -234,8 +246,14 @@ def cmd_setup(args) -> int:
     except ae_mod.AEError:
         pass
 
+    try:
+        project_path = str(template.resolve().relative_to(root))
+    except ValueError:
+        # 작업 폴더 밖이면 절대경로 그대로 쓴다.
+        project_path = str(template.resolve())
+
     answers = {
-        "project": str(template.relative_to(root)),
+        "project": project_path,
         "main_comp": main_comp,
         "slot_comps": songs,
         "width": info["width"], "height": info["height"], "fps": info["fps"],
@@ -646,6 +664,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_setup.add_argument("--force", action="store_true", help="기존 설정을 덮어쓴다")
     p_setup.add_argument("--reread", action="store_true",
                          help="템플릿 구조를 다시 읽는다")
+    p_setup.add_argument("--template", help=".aep 경로 (작업 폴더 밖이어도 됨)")
     p_setup.add_argument("--ae-app", help="AfterFX 실행파일 경로")
     p_setup.add_argument("--yes", action="store_true", help="전부 기본값으로")
 
@@ -704,6 +723,9 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
     try:
         return args.func(args)
+    except wiz.SetupCancelled as exc:
+        print(f"\n{exc} 설정을 만들지 않았습니다.", file=sys.stderr)
+        return 130
     except (ConfigError, ProjectError, ProviderError, ae_mod.AEError,
             render.RenderError, ffmpeg.FFmpegError, FileNotFoundError) as exc:
         print(f"\n오류: {exc}", file=sys.stderr)

@@ -28,12 +28,21 @@ brew install ffmpeg
 cd pipeline && pip install -e .
 ```
 
-설치가 끝나면 작업 폴더에 AE 템플릿(.aep)을 두고:
+설치가 끝나면:
 
 ```bash
 cd D:\warmtapesociety      # 작업 폴더
 plpipe setup
 ```
+
+**`.aep` 를 옮기고 싶지 않으면** 있는 자리를 그대로 가리키면 됩니다:
+
+```bash
+plpipe setup --template "C:/Users/나/Desktop/작업/내템플릿.aep"
+```
+
+파이프라인은 **가리킨 .aep 를 절대 수정하지 않습니다.** 빌드 결과는
+`projects/<이름>/work/ae/` 에 새 파일로 저장되므로 원본은 그대로 남습니다.
 
 **`plpipe setup` 이 설정 파일을 대신 써 줍니다.** TOML 을 직접 편집할 필요가 없습니다.
 `.aep` 를 찾아서 AE 로 구조를 읽은 뒤, 해상도·프레임레이트·컴프 이름·렌더 템플릿을

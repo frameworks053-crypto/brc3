@@ -103,7 +103,13 @@ def run(cfg, project=None) -> list[Result]:
         add(FAIL, "AE 템플릿", f"파일이 없습니다: {template}",
             "경로와 파일명을 확인하세요")
     else:
-        add(OK, "AE 템플릿", template.name)
+        from . import setup_wizard as wiz
+        if wiz.looks_like_autosave(template):
+            add(WARN, "AE 템플릿", f"{template.name} — 자동저장본으로 보입니다",
+                "작업 중 스냅샷이라 지금 상태와 다를 수 있습니다. "
+                "평소 저장해 쓰는 .aep 를 가리키세요")
+        else:
+            add(OK, "AE 템플릿", template.name)
 
     # ── 개수 ────────────────────────────────────────────────
     track_count = int(cfg.get("project.track_count", 13))

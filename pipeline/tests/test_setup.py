@@ -201,6 +201,27 @@ class TestSelectorChoice(unittest.TestCase):
         self.assertEqual(wiz.pick_selector(self.comps, self.songs, "camera"), "")
 
 
+class TestAutosaveDetection(unittest.TestCase):
+    """자동저장본을 템플릿으로 쓰면 지금 편집 상태와 다를 수 있다."""
+
+    def test_flags_autosave_by_folder(self):
+        self.assertTrue(wiz.looks_like_autosave(
+            Path("C:/x/Adobe After Effects Auto-Save/default auto-save 20.aep")))
+
+    def test_flags_autosave_copied_out_of_its_folder(self):
+        # 작업 폴더로 복사해 와도 이름으로 알아봐야 한다.
+        self.assertTrue(wiz.looks_like_autosave(
+            Path("D:/warmtapesociety/default auto-save 20.aep")))
+
+    def test_flags_korean_autosave_names(self):
+        self.assertTrue(wiz.looks_like_autosave(Path("D:/w/자동 저장 3.aep")))
+        self.assertTrue(wiz.looks_like_autosave(Path("D:/w/자동저장.aep")))
+
+    def test_ordinary_names_pass(self):
+        for name in ("warm tape society.aep", "ep08.aep", "template.aep"):
+            self.assertFalse(wiz.looks_like_autosave(Path("D:/w") / name), name)
+
+
 class TestGeneratedConfig(unittest.TestCase):
     ANSWERS = {
         "project": "templates/warm tape society.aep",

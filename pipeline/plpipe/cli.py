@@ -138,6 +138,17 @@ def _parse_vars(pairs: list[str] | None) -> dict[str, str]:
     return out
 
 
+def _warn_autosave(template: Path, yes: bool) -> bool:
+    """자동저장본이면 경고하고 계속할지 묻는다."""
+    if not wiz.looks_like_autosave(template):
+        return True
+    print()
+    print("  ! 이 파일은 After Effects 자동저장본으로 보입니다.")
+    print("    작업 중 어느 시점의 스냅샷이라 지금 편집 상태와 다를 수 있습니다.")
+    print("    평소 저장해 쓰시는 .aep 를 가리키는 편이 안전합니다.")
+    return wiz.ask_yes("  그래도 이 파일로 진행할까요?", False, assume_yes=yes)
+
+
 def cmd_setup(args) -> int:
     """물어보고 config.toml 을 대신 써 준다."""
     root = Path(args.dir or ".").resolve()
@@ -162,6 +173,8 @@ def cmd_setup(args) -> int:
             print(f".aep 파일을 찾지 못했습니다: {template}")
             return 1
         print(f"AE 템플릿: {template}")
+        if not _warn_autosave(template, yes):
+            return 1
     else:
         candidates = wiz.find_templates(root)
         if not candidates:
@@ -174,6 +187,8 @@ def cmd_setup(args) -> int:
         rels = [str(p.relative_to(root)) for p in candidates]
         chosen = wiz.confirm_or_choose("AE 템플릿", rels[0], rels, assume_yes=yes)
         template = candidates[rels.index(chosen)]
+        if not _warn_autosave(template, yes):
+            return 1
     print()
 
     # 2. 템플릿 구조 읽기 ───────────────────────────────────
@@ -230,6 +245,10 @@ def cmd_setup(args) -> int:
         print(f"  {i}. {name}{mark}")
 
     default = ",".join(str(i + 1) for i in sorted(guessed))
+    if args.songs and len(precomps) != args.songs:
+        need = len(precomps) - args.songs
+        print(f"\n곡은 {args.songs}개인데 컴프가 {len(precomps)}개입니다. "
+              f"{need}개를 빼야 합니다.")
     if guessed:
         print(f"\n곡이 아닌 것으로 {len(guessed)}개를 골랐습니다. "
               "맞으면 Enter, 다르면 번호를 다시 입력하세요.")
@@ -257,8 +276,20 @@ def cmd_setup(args) -> int:
                 break
             continue
         excluded = {int(p) - 1 for p in pieces}
+        if args.songs and len(precomps) - len(excluded) != args.songs:
+            got = len(precomps) - len(excluded)
+            print(f"  곡이 {got}개 남습니다. {args.songs}개여야 하는데 "
+                  f"{abs(got - args.songs)}개 {'많습니다' if got > args.songs else '모자랍니다'}.")
+            print(f"  빼야 할 개수: {len(precomps) - args.songs}개")
+            if yes:
+                break
+            continue
         break
     songs = [n for i, n in enumerate(precomps) if i not in excluded]
+
+    if args.songs and len(songs) != args.songs:
+        print(f"\n곡 수가 맞지 않습니다: {len(songs)}개 (기대: {args.songs}개)")
+        return 1
     if not songs:
         print("곡이 하나도 남지 않았습니다.")
         return 1
@@ -697,6 +728,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_setup.add_argument("--reread", action="store_true",
                          help="템플릿 구조를 다시 읽는다")
     p_setup.add_argument("--template", help=".aep 경로 (작업 폴더 밖이어도 됨)")
+    p_setup.add_argument("--songs", type=int,
+                         help="곡 수를 못 박는다. 이 수와 다르면 넘어가지 않는다")
     p_setup.add_argument("--ae-app", help="AfterFX 실행파일 경로")
     p_setup.add_argument("--yes", action="store_true", help="전부 기본값으로")
 

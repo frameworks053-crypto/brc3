@@ -15,6 +15,15 @@ from . import ae as ae_mod
 # AE 가 자동으로 만드는 폴더들. 여기 있는 .aep 는 후보에서 뺀다.
 _SKIP_DIRS = {"adobe after effects auto-save", "auto-save", "backup"}
 
+# 자동저장 파일 이름의 특징. 폴더 밖으로 복사해 와도 이름으로 알아본다.
+_AUTOSAVE_HINTS = ("auto-save", "autosave", "자동 저장", "자동저장")
+
+
+def looks_like_autosave(path: Path) -> bool:
+    """자동저장본인지. 작업 중 스냅샷이라 지금 상태와 다를 수 있다."""
+    lowered = str(path).lower()
+    return any(hint in lowered for hint in _AUTOSAVE_HINTS)
+
 
 class SetupCancelled(RuntimeError):
     pass

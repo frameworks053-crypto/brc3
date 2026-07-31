@@ -110,6 +110,12 @@
             var layer = item.layers[j];
             var entry = { index: j, name: layer.name, kind: layerKind(layer) };
             if (layer.source && layer.source.name) entry.source = layer.source.name;
+            /* 타임라인상의 위치와 길이. 인트로처럼 곡이 아닌 컴프는 훨씬
+               짧게 놓여 있어서, 이 값으로 곡인지 아닌지 가려낼 수 있다. */
+            entry.start = Math.round(layer.startTime * 1000) / 1000;
+            entry["in"] = Math.round(layer.inPoint * 1000) / 1000;
+            entry.out = Math.round(layer.outPoint * 1000) / 1000;
+            if (!layer.enabled) entry.enabled = false;
             if (layer instanceof AVLayer) {
                 var scale = layer.property("ADBE Transform Group")
                                  .property("ADBE Scale");

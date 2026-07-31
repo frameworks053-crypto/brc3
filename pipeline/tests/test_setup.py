@@ -81,6 +81,108 @@ class TestDerivingFromTemplate(unittest.TestCase):
         self.assertEqual(info["render_settings"], "Draft Settings")
 
 
+def scene(songs=13, *, intro=False, disabled=0, untitled=0, span=190.0):
+    """메인 컴프 + 곡 컴프들을 만들어 준다."""
+    comps, layers = {}, []
+    if intro:
+        comps["Intro"] = {"layers": [{"kind": "still"}]}
+        layers.append({"kind": "precomp", "source": "Intro", "in": 0, "out": 12.0})
+    for i in range(1, songs + 1):
+        name = f"Song {i}"
+        body = [{"kind": "still"}]
+        if i > untitled:
+            body.insert(0, {"kind": "text"})
+        comps[name] = {"layers": body}
+        layers.append({"kind": "precomp", "source": name, "in": 0, "out": span})
+    for i in range(disabled):
+        name = f"Old {i + 1}"
+        comps[name] = {"layers": [{"kind": "text"}, {"kind": "still"}]}
+        layers.append({"kind": "precomp", "source": name, "in": 0,
+                       "out": span, "enabled": False})
+    return {"layers": layers}, comps
+
+
+class TestGuessingNonSongs(unittest.TestCase):
+    """곡이 아닌 컴프를 자동으로 가려낸다.
+
+    스무 개 넘는 목록에서 번호를 직접 고르게 하는 대신, 구조로 판단해
+    미리 채워 두고 확인만 받기 위한 것.
+    """
+
+    def test_short_intro_is_flagged(self):
+        main, comps = scene(13, intro=True)
+        guessed = wiz.guess_non_songs(main, comps)
+        self.assertEqual(list(guessed), [0])
+        self.assertTrue(any("길이" in why for why in guessed[0]))
+
+    def test_intro_without_title_gets_both_reasons(self):
+        main, comps = scene(13, intro=True)
+        reasons = wiz.guess_non_songs(main, comps)[0]
+        self.assertTrue(any("길이" in r for r in reasons))
+        self.assertTrue(any("제목" in r for r in reasons))
+
+    def test_disabled_layer_is_flagged(self):
+        main, comps = scene(13, disabled=2)
+        guessed = wiz.guess_non_songs(main, comps)
+        self.assertEqual(sorted(guessed), [13, 14])
+        for i in (13, 14):
+            self.assertTrue(any("꺼져" in r for r in guessed[i]))
+
+    def test_uniform_comps_produce_no_guess(self):
+        # 전부 같은 모양이면 기계가 알 수 없다. 억지로 고르면 안 된다.
+        main, comps = scene(20)
+        self.assertEqual(wiz.guess_non_songs(main, comps), {})
+
+    def test_missing_title_alone_flags_the_odd_one_out(self):
+        main, comps = scene(13, untitled=1)
+        guessed = wiz.guess_non_songs(main, comps)
+        self.assertEqual(list(guessed), [0])
+
+    def test_no_titles_anywhere_is_not_a_signal(self):
+        # 아무 컴프에도 제목이 없으면 그게 이 템플릿의 정상이다.
+        main, comps = scene(13, untitled=13)
+        self.assertEqual(wiz.guess_non_songs(main, comps), {})
+
+    def test_all_signals_together(self):
+        main, comps = scene(13, intro=True, disabled=1)
+        guessed = wiz.guess_non_songs(main, comps)
+        self.assertEqual(sorted(guessed), [0, 14])
+        remaining = len(wiz.precomps_in(main)) - len(guessed)
+        self.assertEqual(remaining, 13)
+
+    def test_missing_timing_does_not_crash(self):
+        # 예전 형식 덤프에는 레이어 타이밍이 없다.
+        main, comps = scene(13, intro=True)
+        for layer in main["layers"]:
+            layer.pop("in", None)
+            layer.pop("out", None)
+        guessed = wiz.guess_non_songs(main, comps)
+        self.assertEqual(list(guessed), [0])   # 제목 없음으로는 잡힌다
+
+    def test_too_few_comps_to_judge_length(self):
+        main, comps = scene(2, intro=True)
+        # 셋뿐이면 중앙값이 의미 없지만 제목 신호는 살아 있다.
+        self.assertIn(0, wiz.guess_non_songs(main, comps))
+
+
+class TestDumpFormat(unittest.TestCase):
+    def test_detects_timing_in_new_dumps(self):
+        main, comps = scene(3, intro=True)
+        dump = {"comps": [{"name": "Main", **main}]}
+        self.assertTrue(wiz.dump_has_timing(dump))
+
+    def test_detects_old_dumps_without_timing(self):
+        main, comps = scene(3, intro=True)
+        for layer in main["layers"]:
+            layer.pop("in", None)
+            layer.pop("out", None)
+        dump = {"comps": [{"name": "Main", **main}]}
+        self.assertFalse(wiz.dump_has_timing(dump))
+
+    def test_empty_dump_is_treated_as_old(self):
+        self.assertFalse(wiz.dump_has_timing({"comps": []}))
+
+
 class TestSelectorChoice(unittest.TestCase):
     def setUp(self):
         self.comps = {c["name"]: c for c in make_dump()["comps"]}

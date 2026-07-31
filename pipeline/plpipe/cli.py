@@ -180,8 +180,13 @@ def cmd_setup(args) -> int:
     dump_path = root / "work" / "ae-template.json"
     dump = None
     if dump_path.is_file() and not args.reread:
-        if wiz.ask_yes("전에 읽어둔 템플릿 구조를 그대로 쓸까요?", True, assume_yes=yes):
-            dump = json.loads(dump_path.read_text(encoding="utf-8"))
+        stored = json.loads(dump_path.read_text(encoding="utf-8"))
+        if not wiz.dump_has_timing(stored):
+            # 예전 형식이라 곡/인트로 구분에 필요한 정보가 없다. 다시 읽는다.
+            print("전에 읽어둔 구조에는 타이밍 정보가 없어 다시 읽습니다.")
+        elif wiz.ask_yes("전에 읽어둔 템플릿 구조를 그대로 쓸까요?", True,
+                         assume_yes=yes):
+            dump = stored
     if dump is None:
         print("After Effects 로 템플릿 구조를 읽는 중… (창이 잠깐 뜹니다)")
         stub = Config(path=dst if dst.exists() else root / "config.toml",
@@ -217,15 +222,42 @@ def cmd_setup(args) -> int:
     if not precomps:
         print(f"'{main_comp}' 안에 프리컴프가 없습니다. 다른 컴프인지 확인해 주세요.")
         return 1
-    print(f"'{main_comp}' 안의 컴프 {len(precomps)}개입니다. 이 중 곡이 아닌 것을 빼겠습니다.")
+    guessed = wiz.guess_non_songs(info["comps"].get(main_comp, {}), info["comps"])
+    print(f"'{main_comp}' 안의 컴프 {len(precomps)}개입니다.")
     for i, name in enumerate(precomps, start=1):
-        print(f"  {i}. {name}")
-    raw = wiz.ask("곡이 아닌 것의 번호 (쉼표로 구분, 없으면 그냥 Enter)", "",
-                  assume_yes=yes)
-    excluded = set()
-    for piece in raw.replace(" ", "").split(","):
-        if piece.isdigit() and 1 <= int(piece) <= len(precomps):
-            excluded.add(int(piece) - 1)
+        why = guessed.get(i - 1)
+        mark = f"   ← 곡 아님? ({', '.join(why)})" if why else ""
+        print(f"  {i}. {name}{mark}")
+
+    default = ",".join(str(i + 1) for i in sorted(guessed))
+    if guessed:
+        print(f"\n곡이 아닌 것으로 {len(guessed)}개를 골랐습니다. "
+              "맞으면 Enter, 다르면 번호를 다시 입력하세요.")
+    else:
+        print("\n전부 같은 모양이라 곡이 아닌 걸 가려내지 못했습니다.")
+        print("인트로처럼 곡이 아닌 게 있으면 번호를, 없으면 Enter 를 누르세요.")
+    # 알아들을 수 없는 입력을 조용히 무시하면 엉뚱한 설정이 만들어진다.
+    # 다시 물어본다.
+    while True:
+        raw = wiz.ask("곡이 아닌 것의 번호 (쉼표로 구분, 없으면 0)",
+                      default or "0", assume_yes=yes)
+        cleaned = raw.strip().lower()
+        if cleaned in ("0", "없음", "none", "-"):
+            excluded: set[int] = set()
+            break
+        pieces = [p for p in cleaned.replace(" ", "").split(",") if p]
+        bad = [p for p in pieces
+               if not p.isdigit() or not 1 <= int(p) <= len(precomps)]
+        if bad:
+            print(f"  '{', '.join(bad)}' 을(를) 못 알아들었습니다. "
+                  f"1 ~ {len(precomps)} 사이 번호를 쉼표로 구분해서 "
+                  "입력하거나, 뺄 게 없으면 0 을 입력하세요.")
+            if yes:
+                excluded = set()
+                break
+            continue
+        excluded = {int(p) - 1 for p in pieces}
+        break
     songs = [n for i, n in enumerate(precomps) if i not in excluded]
     if not songs:
         print("곡이 하나도 남지 않았습니다.")

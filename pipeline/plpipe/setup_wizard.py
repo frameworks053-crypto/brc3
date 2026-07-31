@@ -124,6 +124,91 @@ def precomps_in(comp: dict[str, Any]) -> list[str]:
     return out
 
 
+def dump_has_timing(dump: dict[str, Any]) -> bool:
+    """덤프에 레이어 타이밍이 들어 있는지.
+
+    예전 형식에는 없어서 '길이가 짧으면 곡이 아니다' 판단을 할 수 없다.
+    그럴 땐 템플릿을 다시 읽는 게 낫다.
+    """
+    for comp in dump.get("comps", []):
+        for layer in comp.get("layers", []):
+            if layer.get("kind") == "precomp" and "out" in layer:
+                return True
+    return False
+
+
+def _median(values: Sequence[float]) -> float:
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if not ordered:
+        return 0.0
+    if len(ordered) % 2:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def guess_non_songs(
+    main: dict[str, Any], comps: dict[str, Any]
+) -> dict[int, list[str]]:
+    """메인 컴프에 놓인 프리컴프 중 곡이 아닐 것 같은 것을 골라낸다.
+
+    돌려주는 값은 {0부터 세는 순번: [그렇게 본 이유]}.
+
+    판단 근거 세 가지. 확실한 것부터:
+      · 타임라인에 놓인 길이가 다른 것들보다 훨씬 짧다 (인트로·아웃트로)
+      · 레이어가 꺼져 있다 (쓰지 않는 잔재)
+      · 대부분의 컴프에는 제목 텍스트가 있는데 이것만 없다
+
+    구조가 다 똑같으면 아무것도 돌려주지 않는다. 그때는 기계가 알 수 없으니
+    사람에게 물어야 한다.
+    """
+    entries: list[dict[str, Any]] = []
+    for layer in main.get("layers", []):
+        if layer.get("kind") != "precomp":
+            continue
+        name = layer.get("source") or layer.get("name")
+        span = None
+        if layer.get("out") is not None and layer.get("in") is not None:
+            span = float(layer["out"]) - float(layer["in"])
+        comp = comps.get(name, {})
+        entries.append({
+            "name": name,
+            "span": span if (span is None or span > 0) else None,
+            "enabled": layer.get("enabled", True),
+            "has_text": any(l.get("kind") == "text"
+                            for l in comp.get("layers", [])),
+        })
+
+    reasons: dict[int, list[str]] = {}
+
+    def note(i: int, why: str) -> None:
+        reasons.setdefault(i, []).append(why)
+
+    # 길이 — 중앙값의 40% 미만이면 곡이 아닐 가능성이 크다.
+    spans = [e["span"] for e in entries if e["span"] is not None]
+    if len(spans) >= 3:
+        middle = _median(spans)
+        if middle > 0:
+            for i, entry in enumerate(entries):
+                span = entry["span"]
+                if span is not None and span < middle * 0.4:
+                    note(i, f"길이 {span:.0f}초 (보통 {middle:.0f}초)")
+
+    # 꺼진 레이어.
+    for i, entry in enumerate(entries):
+        if not entry["enabled"]:
+            note(i, "레이어가 꺼져 있음")
+
+    # 제목 텍스트 — 대다수가 갖고 있을 때만 신호로 본다.
+    with_text = sum(1 for e in entries if e["has_text"])
+    if entries and with_text >= len(entries) * 0.6:
+        for i, entry in enumerate(entries):
+            if not entry["has_text"]:
+                note(i, "제목 텍스트 레이어 없음")
+
+    return reasons
+
+
 def pick_selector(comps: dict[str, Any], names: Sequence[str], kind: str) -> str:
     """곡 컴프 전부에서 통하는 선택자를 고른다.
 

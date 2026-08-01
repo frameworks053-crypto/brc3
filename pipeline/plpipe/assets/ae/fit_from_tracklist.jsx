@@ -9,6 +9,7 @@
  *   · 곡 제목이 적힌 메모장 파일을 읽는다
  *   · 시각이 적혀 있으면 그 시각대로 곡 컴프를 배치한다
  *   · 곡 제목 텍스트를 메모장의 제목으로 바꾼다
+ *   · 제목이 길어 왼쪽 로고에 닿으면 글자 크기를 줄인다
  *
  * 메모장 형식은 웬만한 건 다 알아봅니다:
  *   0:00 First thing        |  1. 0:00 First thing
@@ -200,6 +201,134 @@
         return rows;
     }
 
+    // ── 제목 자동 줄이기 ────────────────────────────────────
+    /* 제목이 길면 왼쪽 로고까지 밀고 들어온다. 로고가 놓인 자리를 피하도록
+       글자 크기를 줄인다.
+
+       원래 크기는 레이어 코멘트에 적어 둔다. 그래야 다음 회차에 짧은 제목이
+       오면 원래 크기로 돌아온다 — 안 그러면 실행할 때마다 작아지기만 한다.
+
+       회전이나 부모 연결이 걸린 레이어는 위치 계산이 맞지 않으므로
+       계산에서 빼고 그냥 둔다. */
+    var SIZE_TAG = "plpipe-base-size:";
+
+    function transformOf(layer) {
+        var tr = layer.property("ADBE Transform Group");
+        return { pos: tr.property("ADBE Position").value,
+                 anchor: tr.property("ADBE Anchor Point").value,
+                 scale: tr.property("ADBE Scale").value };
+    }
+
+    function boxOf(layer) {
+        var rect = layer.sourceRectAtTime(Math.max(0, layer.inPoint), false);
+        var t = transformOf(layer);
+        var sx = t.scale[0] / 100, sy = t.scale[1] / 100;
+        var left = t.pos[0] + (rect.left - t.anchor[0]) * sx;
+        var top = t.pos[1] + (rect.top - t.anchor[1]) * sy;
+        return { left: left, top: top,
+                 width: rect.width * Math.abs(sx),
+                 height: rect.height * Math.abs(sy),
+                 right: left + rect.width * Math.abs(sx),
+                 bottom: top + rect.height * Math.abs(sy) };
+    }
+
+    function isRotated(layer) {
+        try {
+            if (layer.parent) return true;
+            var r = layer.property("ADBE Transform Group")
+                         .property("ADBE Rotate Z");
+            if (r && r.value) return true;
+        } catch (e) {}
+        return false;
+    }
+
+    /* 메인 컴프에서 로고처럼 화면 한쪽에만 놓인 작은 레이어를 찾아,
+       제목이 쓸 수 있는 가로 구간을 정한다. 화면을 꽉 채우는 배경이나
+       영상 오버레이는 제외한다. */
+    function freeBand(main) {
+        var w = main.width, h = main.height;
+        var left = 0, right = w, found = false;
+        for (var i = 1; i <= main.layers.length; i++) {
+            var layer = main.layers[i], kind = layerKind(layer);
+            if (kind !== "still" && kind !== "footage" && kind !== "shape") continue;
+            if (!layer.enabled || isRotated(layer)) continue;
+            var box = null;
+            try { box = boxOf(layer); } catch (e) { continue; }
+            if (!box || !box.width) continue;
+            if (box.width > w * 0.5 || box.height > h * 0.5) continue;   // 배경
+            var center = box.left + box.width / 2;
+            if (center < w / 2) {
+                if (box.right > left) { left = box.right; found = true; }
+            } else if (box.left < right) {
+                right = box.left; found = true;
+            }
+        }
+        var margin = w * 0.02;
+        return { left: left + margin, right: right - margin, found: found };
+    }
+
+    function textProp(layer) {
+        return layer.property("ADBE Text Properties").property("ADBE Text Document");
+    }
+
+    /* 곡 컴프 안 좌표를 메인 컴프 좌표로 옮긴다. 프리컴프 레이어에 걸린
+       위치·앵커·스케일만 반영한다. */
+    function bandBox(textLayer, slotLayer) {
+        var inner = boxOf(textLayer);
+        var t = transformOf(slotLayer);
+        var sx = t.scale[0] / 100;
+        var left = t.pos[0] + (inner.left - t.anchor[0]) * sx;
+        var width = inner.width * Math.abs(sx);
+        return { left: left, right: left + width, width: width };
+    }
+
+    function overflowOf(textLayer, slotLayer, band) {
+        var box = bandBox(textLayer, slotLayer), out = 0;
+        if (box.left < band.left) out += band.left - box.left;
+        if (box.right > band.right) out += box.right - band.right;
+        return { over: out, width: box.width };
+    }
+
+    /* 원래 크기로 되돌린 뒤, 구간 밖으로 나간 만큼 줄여 다시 잰다.
+       글자 폭은 크기에 거의 비례하므로 두세 번이면 수렴한다. */
+    function fitTitle(textLayer, slotLayer, band) {
+        if (isRotated(textLayer)) return null;
+        var prop, doc;
+        try { prop = textProp(textLayer); doc = prop.value; } catch (e) { return null; }
+        var current = doc.fontSize;
+        if (!current || !isFinite(current)) return null;
+
+        var note = String(textLayer.comment || "");
+        var m = new RegExp(SIZE_TAG + "([0-9.]+)").exec(note);
+        var base = m ? parseFloat(m[1]) : current;
+        if (!m) {
+            try {
+                textLayer.comment = (note ? note + " " : "") + SIZE_TAG + current;
+            } catch (e2) {}
+        }
+        /* 글자마다 서식이 다른 텍스트처럼 크기를 못 바꾸는 레이어가 있다.
+           여기서 터지면 나머지 곡까지 멈추므로 그냥 두고 넘어간다. */
+        var size = base, floor = base * 0.35, state0;
+        try {
+            if (doc.fontSize !== base) {          // 늘 원래 크기에서 다시 잰다
+                doc.fontSize = base;
+                prop.setValue(doc);
+            }
+            state0 = overflowOf(textLayer, slotLayer, band);
+            if (state0.over <= 0.5) return null;      // 원래 크기로 들어간다
+            for (var guard = 0; guard < 12 && state0.over > 0.5 && size > floor; guard++) {
+                var factor = (state0.width - state0.over) / state0.width;
+                if (!(factor > 0) || factor > 0.995) factor = 0.97;
+                size = Math.max(floor, size * factor);
+                doc = prop.value;
+                doc.fontSize = size;
+                prop.setValue(doc);
+                state0 = overflowOf(textLayer, slotLayer, band);
+            }
+        } catch (e3) { return null; }
+        return { base: base, size: size, fits: state0.over <= 0.5 };
+    }
+
     /* 곡이 아닌 컴프(인트로 등)를 AE 설정에 기억해 둔다. 프로젝트마다
        인트로 이름이 다르고 길이로는 늘 가려낼 수 없으므로, 한 번 지정하면
        다음 회차부터는 그대로 쓴다. */
@@ -248,7 +377,7 @@
     var state = { main: mainGuess, rows: markSongs(slotsOf(mainGuess)), tracks: [] };
 
     // ── 창 ──────────────────────────────────────────────────
-    var VERSION = "v4";   // 창 제목에 표시된다. 파일을 바꿨는지 바로 확인용.
+    var VERSION = "v5";   // 창 제목에 표시된다. 파일을 바꿨는지 바로 확인용.
     var win = new Window("dialog", "트랙리스트로 맞추기  " + VERSION);
     win.orientation = "column";
     win.alignChildren = ["fill", "top"];
@@ -289,8 +418,10 @@
     var selectNone = buttons.add("button", undefined, "선택 해제");
     var timeBox = buttons.add("checkbox", undefined, "시각대로 배치");
     var titleBoxUI = buttons.add("checkbox", undefined, "제목 바꾸기");
+    var shrinkBox = buttons.add("checkbox", undefined, "긴 제목 줄이기");
     timeBox.value = true;
     titleBoxUI.value = true;
+    shrinkBox.value = true;
 
     var status = win.add("statictext", undefined, "", { multiline: true });
     status.preferredSize.height = 36;
@@ -510,8 +641,10 @@
         }
         saveExcluded(excludedNames);
 
+        var band = freeBand(state.main);
+
         app.beginUndoGroup("트랙리스트로 맞추기");
-        var moved = 0, renamed = 0, skipped = [];
+        var moved = 0, renamed = 0, shrunk = 0, tooLong = [], skipped = [];
         try {
             for (var n = 0; n < laid.items.length; n++) {
                 var it = laid.items[n];
@@ -537,6 +670,17 @@
                         skipped.push(it.row.comp.name + " (텍스트 레이어 없음)");
                     }
                 }
+
+                /* 제목을 바꿨으니 길이도 다시 본다. 제목을 안 바꿔도
+                   지난 회차에 줄여 둔 것이 남아 있을 수 있으므로 켜 두면
+                   원래 크기로 되돌린 뒤 필요한 만큼만 다시 줄인다. */
+                if (shrinkBox.value && it.row.textLayer) {
+                    var fit = fitTitle(it.row.textLayer, it.row.layer, band);
+                    if (fit) {
+                        shrunk++;
+                        if (!fit.fits) tooLong.push(it.row.comp.name);
+                    }
+                }
             }
         } catch (e) {
             app.endUndoGroup();
@@ -549,7 +693,11 @@
         var msg = "";
         if (moved) msg += moved + "개 컴프를 배치했습니다.\n";
         if (renamed) msg += renamed + "개 제목을 바꿨습니다.\n";
+        if (shrunk) msg += "긴 제목 " + shrunk + "개를 줄였습니다.\n";
         if (!msg) msg = "바뀐 것이 없습니다.\n";
+        if (tooLong.length) {
+            msg += "\n많이 줄여도 로고에 닿는 제목:\n  " + tooLong.join("\n  ") + "\n";
+        }
         if (skipped.length) msg += "\n건너뛴 것:\n  " + skipped.join("\n  ") + "\n";
         msg += "\n마음에 안 들면 Ctrl+Z 로 되돌릴 수 있습니다.";
         alert(msg);

@@ -11,18 +11,48 @@ Object.assign(globalThis, { AVLayer, TextLayer, ShapeLayer, CompItem,
 
 const FPS = 30000 / 1001;
 
+function prop(value) {
+  return { numKeys: 0, expressionEnabled: false, _v: value,
+           get value() { return this._v; }, setValue(v) { this._v = v; } };
+}
+
+/* 글자 폭 모형. AE 는 실제 폰트로 재지만, 여기서는 "글자 수 × 크기" 로
+   근사한다. 재고-줄이고-다시 재는 흐름을 보는 게 목적이라 비례하면 된다. */
+const CHAR_W = 0.55, LINE_H = 1.2;
+
 function mkLayer({ name, type = AVLayer, source = null, text = null,
-                   enabled = true, start = 0, span = 190 }) {
+                   enabled = true, start = 0, span = 190,
+                   fontSize = 180, comment = "",
+                   pos = [1920, 1080], anchor = [1920, 1080] }) {
   const l = Object.create(type.prototype);
-  const doc = { text };
+  const doc = { text, fontSize };
+  const scale = prop([100, 100]), position = prop(pos);
+  const anchorProp = prop(anchor), rotation = prop(0);
   Object.assign(l, {
-    name, source, enabled, nullLayer: false,
+    name, source, enabled, nullLayer: false, parent: null, comment,
     startTime: start, inPoint: start, outPoint: start + span, _doc: doc,
     property(id) {
+      if (id === "ADBE Transform Group") return { property(pid) {
+        if (pid === "ADBE Position") return position;
+        if (pid === "ADBE Anchor Point") return anchorProp;
+        if (pid === "ADBE Rotate Z") return rotation;
+        return scale;
+      } };
       if (id === "ADBE Text Properties") return { property: () => ({
-        get value() { return { text: doc.text }; },
-        setValue(v) { doc.text = v.text; } }) };
+        get value() { return { text: doc.text, fontSize: doc.fontSize }; },
+        setValue(v) { doc.text = v.text; doc.fontSize = v.fontSize; } }) };
       return null;
+    },
+    /* 텍스트는 가운데 정렬이라 상자가 앵커를 중심으로 좌우로 자란다. */
+    sourceRectAtTime() {
+      if (type === TextLayer) {
+        const w = String(doc.text || "").length * doc.fontSize * CHAR_W;
+        return { left: -w / 2, top: -doc.fontSize * LINE_H,
+                 width: w, height: doc.fontSize * LINE_H };
+      }
+      return { left: 0, top: 0,
+               width: source ? source.width : 0,
+               height: source ? source.height : 0 };
     },
   });
   return l;
@@ -39,12 +69,17 @@ function mkComp({ name, layers = [], duration = 3600 }) {
                      duration, layers: coll, _layers: layers });
   return c;
 }
-function mkFootage({ name, audio = false, duration = 0 }) {
+function mkFootage({ name, audio = false, duration = 0,
+                    width = 2944, height = 1648 }) {
   const f = Object.create(FootageItem.prototype);
-  Object.assign(f, { name, width: 2944, height: 1648, duration,
+  Object.assign(f, { name, width, height, duration,
                      hasVideo: !audio, hasAudio: audio, mainSource: {} });
   return f;
 }
+
+/* argv[8] = "preshrunk" 면 지난 회차에 줄여 둔 제목으로 시작한다. 코멘트에
+   원래 크기가 적혀 있으므로, 짧은 제목이 오면 그 크기로 돌아가야 한다. */
+const preshrunk = process.argv[8] === "preshrunk";
 
 // 지난 회차 배치가 그대로 남아 있는 상태 (곡 길이가 지금과 다름)
 const TOTAL = 3164.0;   // 52:44
@@ -61,14 +96,17 @@ t = introSpan;
 const STALE = [402, 118, 355, 96, 289, 141, 388, 102, 331, 155, 377, 88, 344];
 for (let i = 1; i <= 13; i++) {
   const comp = mkComp({ name: i === 1 ? "Change - Things" : `Change - Things ${i}`,
-    layers: [ mkLayer({ name: `제목${i}`, type: TextLayer, text: `지난회차 ${i}` }),
+    layers: [ mkLayer(Object.assign({ name: `제목${i}`, type: TextLayer,
+                        text: `지난회차 ${i}`, pos: [1920, 1900], anchor: [0, 0] },
+                        preshrunk ? { fontSize: 40, comment: "plpipe-base-size:180" } : {})),
               mkLayer({ name: `img${i}.png`, source: mkFootage({ name: `img${i}.png` }) }) ] });
   songs.push(comp);
   mainLayers.push(mkLayer({ name: comp.name, source: comp, start: t, span: STALE[i - 1] }));
   t += STALE[i - 1];
 }
 const main = mkComp({ name: "Main", duration: TOTAL, layers: [
-  mkLayer({ name: "LOGO.png", source: mkFootage({ name: "LOGO.png" }) }),
+  mkLayer({ name: "LOGO.png", pos: [200, 200], anchor: [150, 150],
+            source: mkFootage({ name: "LOGO.png", width: 300, height: 300 }) }),
   mkLayer({ name: "ep08_full.wav", source: mkFootage({ name: "ep08_full.wav",
                                                        audio: true, duration: TOTAL }) }),
   ...mainLayers ] });
@@ -165,4 +203,12 @@ process.stdout.write(JSON.stringify({
              .map((x) => x._doc.text)[0] ?? null })),
   alerts: globalThis.__alerts, fps: FPS,
   saved: globalThis.__store["plpipe/notSongs"],
+  // 제목 레이어의 최종 상태 — 자동 줄이기 결과.
+  titles: [intro, ...songs].reduce((acc, comp) => {
+    comp._layers.filter((l) => l instanceof TextLayer).forEach((l) => {
+      acc.push({ comp: comp.name, text: l._doc.text,
+                 fontSize: l._doc.fontSize, comment: l.comment });
+    });
+    return acc;
+  }, []),
 }, null, 1));

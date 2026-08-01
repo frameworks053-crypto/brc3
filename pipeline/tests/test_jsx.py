@@ -326,20 +326,28 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 
 
-def run_swap(remembered: str = "", intro: str = "") -> dict:
+def run_swap(remembered: str = "", *flags: str) -> dict:
     """이미지 교체 스크립트를 하네스로 돌린다.
 
-    remembered = 지난 회차에 "곡 아님" 으로 지정해 둔 컴프 이름들,
-    intro = "long" 이면 인트로가 곡보다 길고 제목 텍스트도 있는 구성.
+    remembered = 지난 회차에 "곡 아님" 으로 지정해 둔 컴프 이름들.
+    플래그: "long" 인트로가 곡보다 길고 제목 텍스트도 있는 구성,
+            "preshrunk" 지난 회차에 줄여 둔 제목으로 시작,
+            "shuffle" 이미지 섞기 버튼을 누른다,
+            "nointro" 인트로에 1번 이미지 넣기를 끈다.
     """
     harness = ROOT / "tests" / "ae_mock" / "swap_harness.mjs"
     proc = subprocess.run(
-        [NODE, str(harness), str(SCRIPTS / "swap_images.jsx"), remembered, intro],
+        [NODE, str(harness), str(SCRIPTS / "swap_images.jsx"), remembered, *flags],
         capture_output=True, text=True, errors="replace",
     )
     if proc.returncode != 0:
         raise AssertionError(f"하네스 실행 실패:\n{proc.stderr[-3000:]}")
     return json.loads(proc.stdout)
+
+
+def song_images(rows: list) -> list:
+    """곡 컴프에 들어간 이미지만. 인트로에 덤으로 넣는 것은 뺀다."""
+    return [r for r in rows if r["image"] and "(인트로)" not in r["image"]]
 
 
 @unittest.skipUnless(NODE, "node 가 없어 ExtendScript 검증을 건너뜁니다")
@@ -354,7 +362,7 @@ class TestSwapImagesScript(unittest.TestCase):
     def setUpClass(cls):
         cls.result = run_swap()
         cls.rows = cls.result["rows"]
-        cls.mapped = [r for r in cls.rows if r["image"]]
+        cls.mapped = song_images(cls.rows)
 
     def test_images_are_ordered_by_leading_number(self):
         # 폴더에서 읽은 순서는 뒤죽박죽이다. "10-*" 이 "2-*" 보다 뒤여야 한다.
@@ -362,11 +370,15 @@ class TestSwapImagesScript(unittest.TestCase):
         self.assertEqual(numbers, sorted(numbers))
         self.assertEqual(numbers, list(range(1, 14)))
 
-    def test_intro_is_excluded_by_its_short_placement(self):
+    def test_intro_is_kept_out_of_the_song_numbering(self):
+        # 인트로는 곡으로 세지 않는다. 1번 이미지는 첫 곡 것이고,
+        # 인트로에는 같은 그림이 덤으로 들어갈 뿐이다.
         intro = self.rows[0]
         self.assertEqual(intro["comp"], "Intro")
-        self.assertEqual(intro["image"], "")
         self.assertIn("길이", intro["why"])
+        self.assertEqual(intro["image"], "1-one.png  (인트로)")
+        self.assertEqual(self.mapped[0]["comp"], "Change - Things")
+        self.assertEqual(self.mapped[0]["image"], "1-one.png")
 
     def test_disabled_leftover_is_excluded(self):
         stale = self.rows[-1]
@@ -390,6 +402,50 @@ class TestSwapImagesScript(unittest.TestCase):
         # 다음 회차에는 인트로를 다시 골라내지 않아도 되도록 이름으로 저장한다.
         self.assertEqual(self.result["saved"], "Intro\nChange - Things 20")
 
+    def test_intro_gets_the_same_image_as_the_first_song(self):
+        # 13곡 + 인트로 = 14번 교체. 인트로만 1번 이미지를 한 번 더 쓴다.
+        pairs = [(a["layer"], a["image"]) for a in self.result["applied"]]
+        self.assertEqual(len(pairs), 14)
+        self.assertEqual(pairs[0], ("old1.png", "1-one.png"))
+        self.assertEqual(pairs[-1], ("intro.png", "1-one.png"))
+        self.assertIn("인트로(Intro)", self.result["alert"])
+
+    def test_intro_option_can_be_turned_off(self):
+        result = run_swap("", "nointro")
+        self.assertEqual(result["rows"][0]["image"], "")
+        self.assertEqual(len(result["applied"]), 13)
+        self.assertNotIn("인트로", result["alert"])
+
+
+@unittest.skipUnless(NODE, "node 가 없어 ExtendScript 검증을 건너뜁니다")
+class TestSwapImagesShuffle(unittest.TestCase):
+    """"이미지 섞기" 버튼. 순서만 바뀌고 장수는 그대로여야 한다."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.plain = run_swap()
+        cls.mixed = run_swap("", "shuffle")
+
+    def images(self, result):
+        return [r["image"] for r in song_images(result["rows"])]
+
+    def test_shuffle_changes_the_order(self):
+        self.assertNotEqual(self.images(self.mixed), self.images(self.plain))
+
+    def test_every_image_is_still_used_exactly_once(self):
+        # 섞다가 빠뜨리거나 겹치면 곡 하나가 그림 없이 남는다.
+        self.assertEqual(sorted(self.images(self.mixed)),
+                         sorted(self.images(self.plain)))
+        self.assertEqual(len(set(self.images(self.mixed))), 13)
+
+    def test_intro_follows_the_new_first_image(self):
+        first = self.images(self.mixed)[0]
+        self.assertEqual(self.mixed["rows"][0]["image"], first + "  (인트로)")
+
+    def test_original_order_button_undoes_the_shuffle(self):
+        back = run_swap("", "reorder")
+        self.assertEqual(self.images(back), self.images(self.plain))
+
 
 @unittest.skipUnless(NODE, "node 가 없어 ExtendScript 검증을 건너뜁니다")
 class TestSwapImagesLongIntro(unittest.TestCase):
@@ -399,26 +455,27 @@ class TestSwapImagesLongIntro(unittest.TestCase):
     제목 유무로도 구분되지 않으므로, 이름을 기억해 두는 것만이 정답을 낸다.
     """
 
-    def test_without_memory_the_intro_steals_the_first_image(self):
-        rows = run_swap(intro="long")["rows"]
+    def test_without_memory_the_intro_is_counted_as_a_song(self):
+        rows = run_swap("", "long", "nointro")["rows"]
         self.assertEqual(rows[0]["comp"], "Intro")
         self.assertEqual(rows[0]["image"], "1-one.png")   # 잘못된 결과
         # 그래도 개수는 이미지 장수에 맞춘다. 짝이 한 칸씩 밀리기만 하고
         # 남는 컴프에 엉뚱한 이미지가 더 들어가지는 않는다.
-        self.assertEqual(sum(1 for r in rows if r["image"]), 13)
+        self.assertEqual(len(song_images(rows)), 13)
 
     def test_memory_keeps_the_intro_out_and_shifts_every_image_back(self):
-        result = run_swap(remembered="Intro\nChange - Things 20", intro="long")
+        result = run_swap("Intro\nChange - Things 20", "long")
         rows = result["rows"]
-        self.assertEqual(rows[0]["image"], "")
         self.assertIn("기억", result["status"])
-        mapped = [(r["comp"], r["image"]) for r in rows if r["image"]]
+        mapped = [(r["comp"], r["image"]) for r in song_images(rows)]
         self.assertEqual(len(mapped), 13)
         self.assertEqual(mapped[0], ("Change - Things", "1-one.png"))
         self.assertEqual(mapped[-1], ("Change - Things 13", "13-thirteen.png"))
+        # 인트로는 곡에서 빠지되 첫 곡과 같은 그림을 받는다.
+        self.assertEqual(rows[0]["image"], "1-one.png  (인트로)")
 
     def test_memory_survives_apply_unchanged(self):
-        result = run_swap(remembered="Intro\nChange - Things 20", intro="long")
+        result = run_swap("Intro\nChange - Things 20", "long", "nointro")
         self.assertEqual(result["saved"], "Intro\nChange - Things 20")
         self.assertEqual(len(result["applied"]), 13)
 
@@ -466,14 +523,15 @@ all music & artwork created by warm tape society
     ]
 
     @classmethod
-    def run_script(cls, extra=0, kind="", remembered="", intro=""):
+    def run_script(cls, extra=0, kind="", remembered="", intro="",
+                   tracklist=None, sizes=""):
         import tempfile
 
         tmp = Path(tempfile.mkdtemp()) / "description_draft.txt"
-        tmp.write_text(cls.TRACKLIST, encoding="utf-8")
+        tmp.write_text(tracklist or cls.TRACKLIST, encoding="utf-8")
         harness = ROOT / "tests" / "ae_mock" / "tracklist_harness.mjs"
         argv = [NODE, str(harness), str(SCRIPTS / "fit_from_tracklist.jsx"),
-                str(tmp), str(extra), kind, remembered, intro]
+                str(tmp), str(extra), kind, remembered, intro, sizes]
         proc = subprocess.run(argv, capture_output=True, text=True,
                               errors="replace")
         if proc.returncode != 0:
@@ -593,3 +651,62 @@ all music & artwork created by warm tape society
     def test_remembered_names_that_no_longer_exist_are_ignored(self):
         result = self.run_script(remembered="없어진 컴프")
         self.assertEqual(len(self._titled(result)), 13)
+
+
+@unittest.skipUnless(NODE, "node 가 없어 ExtendScript 검증을 건너뜁니다")
+class TestTitleShrinking(unittest.TestCase):
+    """긴 제목이 왼쪽 로고까지 밀고 들어오면 글자 크기를 줄인다.
+
+    하네스의 글자 폭은 "글자 수 × 크기" 근사다. 실제 폰트 폭은 아니지만
+    크기에 비례하므로, 재고-줄이고-다시 재는 흐름은 그대로 검증된다.
+
+    시나리오: 3840 폭 컴프, 왼쪽 위 로고의 오른쪽 끝이 x=350.
+    여백 2% 를 빼면 제목이 쓸 수 있는 구간은 x=426.8 부터.
+    제목은 가운데(x=1920) 정렬이라 폭 2986px 까지만 들어간다.
+    """
+
+    LONG = "Whatever You're About to Say Before You Change Your Mind Again Tonight"
+
+    TRACKLIST = "\n".join([
+        "tracklist",
+        "0:00 Short One",
+        "3:41 " + LONG,
+        "7:31 Also Short",
+    ] + ["%d:00 Filler %d" % (10 + i, i) for i in range(10)])
+
+    @classmethod
+    def run_it(cls, sizes=""):
+        return TestFitFromTracklist.run_script(tracklist=cls.TRACKLIST, sizes=sizes)
+
+    def sizes(self, result):
+        return {t["text"]: t["fontSize"] for t in result["titles"]}
+
+    def test_short_titles_keep_their_size(self):
+        sizes = self.sizes(self.run_it())
+        self.assertEqual(sizes["Short One"], 180)
+        self.assertEqual(sizes["Also Short"], 180)
+
+    def test_long_title_is_shrunk_until_it_clears_the_logo(self):
+        result = self.run_it()
+        size = self.sizes(result)[self.LONG]
+        self.assertLess(size, 180)
+        # 로고 경계까지의 폭(2986px) 안에 들어와야 한다.
+        self.assertLessEqual(len(self.LONG) * size * 0.55, 2986.5)
+        # 필요 이상으로 줄이지도 않는다 — 한 단계만 키워도 넘친다.
+        self.assertGreater(len(self.LONG) * (size * 1.1) * 0.55, 2986.5)
+        self.assertIn("긴 제목 1개를 줄였습니다", "\n".join(result["alerts"]))
+
+    def test_original_size_is_recorded_so_it_can_come_back(self):
+        result = self.run_it()
+        for title in result["titles"]:
+            self.assertEqual(title["comment"], "plpipe-base-size:180")
+
+    def test_a_title_shrunk_last_time_grows_back(self):
+        """실행할 때마다 작아지기만 하면 몇 회차 뒤엔 글씨가 사라진다.
+
+        코멘트에 적어 둔 원래 크기에서 다시 재기 때문에, 짧은 제목이
+        오면 원래 크기로 돌아온다.
+        """
+        sizes = self.sizes(self.run_it(sizes="preshrunk"))
+        self.assertEqual(sizes["Short One"], 180)
+        self.assertLess(sizes[self.LONG], 180)

@@ -385,22 +385,32 @@ class TestFitFromTracklist(unittest.TestCase):
     지난 회차 배치가 남아 있는 상태에서 이번 회차 트랙리스트를 먹인다.
     """
 
-    TRACKLIST = """# EP08 트랙리스트
-0:00 First thing
-3:14 South side
-6:52 All week
-10:31 In the meantime
-13:47 Hand me that
-17:02 Slow money
-20:15 Fine, then
-23:30 Back seat
-25:58 The quiet part
-27:12 Nothing to fix
-28:04 Morning after all
-28:51 Warm front
-29:20 Leave the light
+    # 실제 메모장은 트랙리스트만 있지 않다. 설명란 초안이라 훅 문장,
+    # 머리글, "total runtime", 크레딧, 댓글 초안이 같이 들어 있다.
+    TRACKLIST = """[여기에 첫 두 줄 훅 문장 — 예: chill neo soul & r&b for late nights]
+
+tracklist
+0:00 Nothing to Report
+3:41 Two Sugars
+7:31 Whatever You're About to Say
+11:31 So Far So Good
+15:42 Better Than the Rumor
+20:01 Slow Is a Choice
+24:30 Both of Us Were Right
+28:52 Six Months Late
+33:01 Thank You and I'm Sorry
+36:59 Nothing You Did
+40:49 What the Dark Is For
+44:36 Something Green
+48:05 Anytime You Want
+
+total runtime: 52:44
+
+all music & artwork created by warm tape society
+
+[핀 댓글용 질문 초안: which track is your 3am pick?]
 """
-    AUDIO_END = 1774.0
+    AUDIO_END = 3164.0
 
     @classmethod
     def setUpClass(cls):
@@ -422,19 +432,37 @@ class TestFitFromTracklist(unittest.TestCase):
 
     def test_every_song_gets_its_title(self):
         titles = [a["title"] for a in self.songs]
-        self.assertEqual(titles[0], "First thing")
-        self.assertEqual(titles[-1], "Leave the light")
+        self.assertEqual(titles[0], "Nothing to Report")
+        self.assertEqual(titles[-1], "Anytime You Want")
         self.assertEqual(len(titles), 13)
         self.assertFalse([t for t in titles if t and t.startswith("지난회차")])
 
-    def test_comment_line_is_skipped(self):
-        # "# EP08 트랙리스트" 가 첫 곡으로 잡히면 전부 한 칸씩 밀린다.
-        self.assertEqual(self.songs[0]["title"], "First thing")
+    def test_prose_lines_are_not_treated_as_tracks(self):
+        """훅 문장·머리글·크레딧·댓글 초안이 곡으로 잡히면 전부 밀린다.
+
+        줄 맨 앞에 시각이 있는 줄만 곡으로 본다.
+        """
+        titles = [a["title"] for a in self.songs]
+        for junk in ("tracklist", "total runtime",
+                     "all music & artwork created by warm tape society"):
+            self.assertFalse([t for t in titles if t and junk in t], junk)
+        self.assertFalse([t for t in titles if t and t.startswith("[")])
+
+    def test_trailing_time_is_not_a_track_start(self):
+        # "total runtime: 52:44" 는 시각이 줄 끝에 있으므로 곡이 아니다.
+        self.assertNotIn(3164.0, [round(a["start"], 3) for a in self.songs])
+
+    def test_selection_falls_back_to_the_track_count(self):
+        # 지난 회차 배치라 길이가 제각각이라 구조 추측이 빗나간다.
+        # 그때는 메모장에 적힌 곡 수를 더 믿는다.
+        self.assertEqual(len(self.songs), 13)
 
     def test_starts_come_from_the_tracklist(self):
         self.assertAlmostEqual(self.songs[0]["start"], 0.0, places=3)
-        # 3:14 = 194초, 프레임 경계로 올림된 값
-        self.assertAlmostEqual(self.songs[1]["start"], 194.0, delta=1 / self.fps)
+        # 3:41 = 221초, 프레임 경계로 올림된 값
+        self.assertAlmostEqual(self.songs[1]["start"], 221.0, delta=1 / self.fps)
+        # 48:05 = 2885초
+        self.assertAlmostEqual(self.songs[-1]["start"], 2885.0, delta=1 / self.fps)
 
     def test_every_placement_lands_on_a_frame(self):
         for song in self.songs:
@@ -460,3 +488,4 @@ class TestFitFromTracklist(unittest.TestCase):
     def test_status_names_the_audio_it_measured_against(self):
         self.assertIn("ep08_full.wav", self.result["status"])
         self.assertIn("13곡", self.result["status"])
+        self.assertNotIn("개수가 다릅니다", self.result["status"])

@@ -37,7 +37,7 @@
         var numbered = /^\s*\d{1,3}\s*[.)\]\-–—]\s*/;
         line = line.replace(numbered, "");
 
-        var time = null, rest = line;
+        var time = null, leading = false, rest = line;
 
         var head = /^\s*[\[\(]?\s*(\d{1,2}):([0-5]?\d)(?::([0-5]?\d))?\s*[\]\)]?\s*[-–—.)\]]?\s*/;
         var m = head.exec(line);
@@ -45,6 +45,7 @@
             time = m[3] !== undefined
                 ? (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3])
                 : (+m[1]) * 60 + (+m[2]);
+            leading = true;
             rest = line.substring(m[0].length);
         } else {
             var tail = /\s*[\[\(]?\s*(\d{1,2}):([0-5]?\d)(?::([0-5]?\d))?\s*[\]\)]?\s*$/;
@@ -60,7 +61,7 @@
         rest = rest.replace(numbered, "");
         rest = rest.replace(/^[\s\-–—:.\t]+/, "").replace(/[\s\-–—:.\t]+$/, "");
         if (!rest && time === null) return null;
-        return { time: time, title: rest };
+        return { time: time, leading: leading, title: rest };
     }
 
     /* 메모장이 UTF-8 일 수도 ANSI(한글 윈도우면 CP949) 일 수도 있다.
@@ -82,15 +83,24 @@
         return "";
     }
 
+    /* 실제 메모장에는 트랙리스트만 있지 않다. 훅 문장, "tracklist" 머리글,
+       "total runtime: 52:44", 크레딧, 댓글 초안 같은 줄이 섞여 있다.
+       그래서 줄 맨 앞에 시각이 있는 줄만 곡으로 본다. "total runtime: 52:44"
+       는 시각이 줄 끝에 있으므로 걸러진다.
+
+       시각이 앞에 붙은 줄이 하나도 없으면 그런 형식이 아니라는 뜻이므로,
+       그때만 제목만 적힌 목록으로 보고 전부 받는다. */
     function parseTracklist(file) {
         var text = readTextFile(file);
         var lines = text.split(/\r\n|\r|\n/);
-        var out = [];
+        var timed = [], loose = [];
         for (var i = 0; i < lines.length; i++) {
             var row = parseTrackline(lines[i]);
-            if (row) out.push(row);
+            if (!row) continue;
+            if (row.leading) timed.push(row);
+            loose.push(row);
         }
-        return out;
+        return timed.length ? timed : loose;
     }
 
     // ── AE 헬퍼 ─────────────────────────────────────────────
@@ -240,9 +250,10 @@
         "곡 컴프만 선택하세요. 위에서부터 트랙리스트 순서대로 짝지어집니다.");
 
     var list = win.add("listbox", undefined, [], {
-        multiselect: true, numberOfColumns: 6, showHeaders: true,
-        columnTitles: ["#", "컴프", "새 제목", "시작", "길이", "비고"],
-        columnWidths: [28, 175, 215, 68, 68, 120]
+        multiselect: true, showHeaders: true,
+        columnTitles: ["#", "컴프", "지금 길이", "새 제목", "새 시작", "새 길이", "비고"],
+        columnWidths: [28, 165, 66, 190, 66, 66, 110],
+        numberOfColumns: 7
     });
     list.preferredSize.height = 300;
 
@@ -314,10 +325,11 @@
         for (var i = 0; i < state.rows.length; i++) {
             var item = list.add("item", String(i + 1));
             item.subItems[0].text = state.rows[i].comp.name;
-            item.subItems[1].text = "";
+            item.subItems[1].text = clock(state.rows[i].span);
             item.subItems[2].text = "";
             item.subItems[3].text = "";
-            item.subItems[4].text = state.rows[i].why;
+            item.subItems[4].text = "";
+            item.subItems[5].text = state.rows[i].why;
         }
         var sel = [];
         for (var j = 0; j < wanted.length; j++) {
@@ -329,17 +341,17 @@
 
     function refresh() {
         for (var i = 0; i < list.items.length; i++) {
-            list.items[i].subItems[1].text = "";
             list.items[i].subItems[2].text = "";
             list.items[i].subItems[3].text = "";
+            list.items[i].subItems[4].text = "";
         }
         var laid = plan();
         for (var n = 0; n < laid.items.length; n++) {
             var it = laid.items[n], row = list.items[it.index];
-            row.subItems[1].text = it.title;
-            row.subItems[2].text = clock(it.start);
+            row.subItems[2].text = it.title;
+            row.subItems[3].text = clock(it.start);
             if (it.start !== null && it.end !== null) {
-                row.subItems[3].text = clock(it.end - it.start);
+                row.subItems[4].text = clock(it.end - it.start);
             }
         }
 
@@ -367,10 +379,33 @@
             && (timeBox.value || titleBoxUI.value);
     }
 
+    /* 구조로 추측한 결과가 트랙리스트 곡 수와 안 맞으면, 곡 수를 더 믿는다.
+       지난 회차 배치가 남아 있으면 길이가 제각각이라 추측이 잘 빗나가는데,
+       메모장에 몇 곡인지는 분명히 적혀 있기 때문이다. */
     function guessSelection() {
-        var out = [];
-        for (var i = 0; i < state.rows.length; i++) if (state.rows[i].isSong) out.push(i);
-        return out;
+        var guessed = [], i;
+        for (i = 0; i < state.rows.length; i++) {
+            if (state.rows[i].isSong) guessed.push(i);
+        }
+        var want = state.tracks.length;
+        if (!want || guessed.length === want) return guessed;
+
+        var total = state.rows.length;
+        if (total === want) {                    // 전부가 곡
+            var all = [];
+            for (i = 0; i < total; i++) all.push(i);
+            return all;
+        }
+        if (total === want + 1) {                // 하나만 곡이 아님
+            var drop = 0;                        // 가장 짧은 것을 뺀다
+            for (i = 1; i < total; i++) {
+                if (state.rows[i].span < state.rows[drop].span) drop = i;
+            }
+            var kept = [];
+            for (i = 0; i < total; i++) if (i !== drop) kept.push(i);
+            return kept;
+        }
+        return guessed;
     }
 
     // ── 이벤트 ──────────────────────────────────────────────
@@ -390,7 +425,8 @@
             alert("이 파일에서 곡을 하나도 읽지 못했습니다.\n"
                   + "한 줄에 한 곡씩 적혀 있는지 확인해 주세요.");
         }
-        refresh();
+        // 곡 수를 알게 됐으니 선택을 다시 잡는다.
+        redraw(guessSelection());
     };
 
     list.onChange = refresh;

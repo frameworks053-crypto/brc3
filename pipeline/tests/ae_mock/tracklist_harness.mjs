@@ -43,20 +43,22 @@ function mkFootage({ name, audio = false, duration = 0 }) {
 }
 
 // 지난 회차 배치가 그대로 남아 있는 상태 (곡 길이가 지금과 다름)
-const TOTAL = 1774.0;
+const TOTAL = 3164.0;   // 52:44
 const songs = [], mainLayers = [];
 let t = 0;
 const intro = mkComp({ name: "Intro",
   layers: [mkLayer({ name: "intro.png", source: mkFootage({ name: "intro.png" }) })] });
 mainLayers.push(mkLayer({ name: "Intro", source: intro, start: 0, span: 11 }));
 t = 11;
+// 지난 회차 배치라 곡 길이가 제각각이다 (추측이 빗나가기 쉬운 상태)
+const STALE = [402, 118, 355, 96, 289, 141, 388, 102, 331, 155, 377, 88, 344];
 for (let i = 1; i <= 13; i++) {
   const comp = mkComp({ name: i === 1 ? "Change - Things" : `Change - Things ${i}`,
     layers: [ mkLayer({ name: `제목${i}`, type: TextLayer, text: `지난회차 ${i}` }),
               mkLayer({ name: `img${i}.png`, source: mkFootage({ name: `img${i}.png` }) }) ] });
   songs.push(comp);
-  mainLayers.push(mkLayer({ name: comp.name, source: comp, start: t, span: 135 }));
-  t += 135;
+  mainLayers.push(mkLayer({ name: comp.name, source: comp, start: t, span: STALE[i - 1] }));
+  t += STALE[i - 1];
 }
 const main = mkComp({ name: "Main", duration: TOTAL, layers: [
   mkLayer({ name: "LOGO.png", source: mkFootage({ name: "LOGO.png" }) }),

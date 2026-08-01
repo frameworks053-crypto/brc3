@@ -223,7 +223,8 @@
     var state = { main: mainGuess, rows: markSongs(slotsOf(mainGuess)), tracks: [] };
 
     // ── 창 ──────────────────────────────────────────────────
-    var win = new Window("dialog", "트랙리스트로 맞추기");
+    var VERSION = "v3";   // 창 제목에 표시된다. 파일을 바꿨는지 바로 확인용.
+    var win = new Window("dialog", "트랙리스트로 맞추기  " + VERSION);
     win.orientation = "column";
     win.alignChildren = ["fill", "top"];
     win.preferredSize = [780, 590];
@@ -356,7 +357,8 @@
         }
 
         var chosen = selectedIndexes();
-        var lines = "선택한 컴프 " + chosen.length + "개 · 트랙리스트 "
+        var lines = "선택한 컴프 " + chosen.length + "개 / 전체 "
+                    + state.rows.length + "개 · 트랙리스트 "
                     + state.tracks.length + "곡";
         if (state.tracks.length && chosen.length !== state.tracks.length) {
             lines += "   ← 개수가 다릅니다";
@@ -390,22 +392,25 @@
         var want = state.tracks.length;
         if (!want || guessed.length === want) return guessed;
 
-        var total = state.rows.length;
-        if (total === want) {                    // 전부가 곡
-            var all = [];
-            for (i = 0; i < total; i++) all.push(i);
-            return all;
-        }
-        if (total === want + 1) {                // 하나만 곡이 아님
-            var drop = 0;                        // 가장 짧은 것을 뺀다
-            for (i = 1; i < total; i++) {
-                if (state.rows[i].span < state.rows[drop].span) drop = i;
-            }
-            var kept = [];
-            for (i = 0; i < total; i++) if (i !== drop) kept.push(i);
-            return kept;
-        }
-        return guessed;
+        var total = state.rows.length, all = [], i2;
+        for (i2 = 0; i2 < total; i2++) all.push(i2);
+        if (total <= want) return all;           // 모자라면 전부 (개수 경고가 뜬다)
+
+        /* 남는 개수만큼 짧은 것부터 뺀다. 인트로·아웃트로·잔재는 곡보다
+           짧게 놓여 있기 때문이다. 꺼진 레이어는 무조건 먼저 뺀다. */
+        var order = [];
+        for (i2 = 0; i2 < total; i2++) order.push(i2);
+        order.sort(function (a, b) {
+            var ea = state.rows[a].enabled ? 1 : 0;
+            var eb = state.rows[b].enabled ? 1 : 0;
+            if (ea !== eb) return ea - eb;       // 꺼진 것 먼저
+            return state.rows[a].span - state.rows[b].span;
+        });
+        var dropped = {};
+        for (i2 = 0; i2 < total - want; i2++) dropped[order[i2]] = true;
+        var kept = [];
+        for (i2 = 0; i2 < total; i2++) if (!dropped[i2]) kept.push(i2);
+        return kept;
     }
 
     // ── 이벤트 ──────────────────────────────────────────────

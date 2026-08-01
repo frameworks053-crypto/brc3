@@ -412,21 +412,34 @@ all music & artwork created by warm tape society
 """
     AUDIO_END = 3164.0
 
+    TITLES = [
+        "Nothing to Report", "Two Sugars", "Whatever You're About to Say",
+        "So Far So Good", "Better Than the Rumor", "Slow Is a Choice",
+        "Both of Us Were Right", "Six Months Late", "Thank You and I'm Sorry",
+        "Nothing You Did", "What the Dark Is For", "Something Green",
+        "Anytime You Want",
+    ]
+
     @classmethod
-    def setUpClass(cls):
+    def run_script(cls, extra=0, kind=""):
         import tempfile
 
-        cls.tmp = Path(tempfile.mkdtemp()) / "tracklist.txt"
-        cls.tmp.write_text(cls.TRACKLIST, encoding="utf-8")
+        tmp = Path(tempfile.mkdtemp()) / "description_draft.txt"
+        tmp.write_text(cls.TRACKLIST, encoding="utf-8")
         harness = ROOT / "tests" / "ae_mock" / "tracklist_harness.mjs"
-        proc = subprocess.run(
-            [NODE, str(harness), str(SCRIPTS / "fit_from_tracklist.jsx"),
-             str(cls.tmp)],
-            capture_output=True, text=True, errors="replace",
-        )
+        argv = [NODE, str(harness), str(SCRIPTS / "fit_from_tracklist.jsx"),
+                str(tmp), str(extra)]
+        if kind:
+            argv.append(kind)
+        proc = subprocess.run(argv, capture_output=True, text=True,
+                              errors="replace")
         if proc.returncode != 0:
             raise AssertionError(f"하네스 실행 실패:\n{proc.stderr[-3000:]}")
-        cls.result = json.loads(proc.stdout)
+        return json.loads(proc.stdout)
+
+    @classmethod
+    def setUpClass(cls):
+        cls.result = cls.run_script()
         cls.fps = cls.result["fps"]
         cls.songs = [a for a in cls.result["applied"] if a["comp"] != "Intro"]
 
@@ -489,3 +502,27 @@ all music & artwork created by warm tape society
         self.assertIn("ep08_full.wav", self.result["status"])
         self.assertIn("13곡", self.result["status"])
         self.assertNotIn("개수가 다릅니다", self.result["status"])
+
+    def _titled(self, result):
+        return [a for a in result["applied"] if a["title"] in self.TITLES]
+
+    def test_leftover_comps_do_not_take_titles(self):
+        """정리 안 된 잔재 컴프가 섞여 있어도 곡 수만큼만 처리한다.
+
+        지난 회차 잔재가 남은 프로젝트에서 실제로 겪은 상황이다.
+        """
+        for extra in (1, 3, 6):
+            with self.subTest(잔재=extra):
+                result = self.run_script(extra)
+                titled = self._titled(result)
+                self.assertEqual(len(titled), 13)
+                self.assertFalse([a["comp"] for a in titled
+                                  if a["comp"].startswith(("잔재", "Intro"))])
+
+    def test_disabled_leftovers_are_dropped_even_when_long(self):
+        # 꺼진 레이어는 길어도 곡이 아니다.
+        result = self.run_script(3, "off")
+        titled = self._titled(result)
+        self.assertEqual(len(titled), 13)
+        self.assertFalse([a["comp"] for a in titled
+                          if a["comp"].startswith("잔재")])

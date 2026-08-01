@@ -29,8 +29,12 @@ function mkLayer({ name, type = AVLayer, source = null, text = null,
 }
 function mkComp({ name, layers = [], duration = 3600 }) {
   const c = Object.create(CompItem.prototype);
+  // 나중에 레이어를 밀어 넣어도 1-기반 접근이 따라오도록 접근자로 만든다.
   const coll = { get length() { return layers.length; } };
-  layers.forEach((l, i) => { coll[i + 1] = l; });
+  for (let i = 0; i < 100; i++) {
+    Object.defineProperty(coll, i + 1, {
+      get() { return layers[i]; }, configurable: true });
+  }
   Object.assign(c, { name, width: 3840, height: 2160, frameRate: FPS,
                      duration, layers: coll, _layers: layers });
   return c;
@@ -65,6 +69,19 @@ const main = mkComp({ name: "Main", duration: TOTAL, layers: [
   mkLayer({ name: "ep08_full.wav", source: mkFootage({ name: "ep08_full.wav",
                                                        audio: true, duration: TOTAL }) }),
   ...mainLayers ] });
+/* 곡이 아닌 잔재 컴프를 붙일 수 있다.
+   argv[4] = 개수, argv[5] = "off" 면 꺼진 레이어로. */
+const extraCount = parseInt(process.argv[4] || "0", 10) || 0;
+const extraOff = process.argv[5] === "off";
+for (let z = 0; z < extraCount; z++) {
+  const c = mkComp({ name: "잔재 " + (z + 1), layers: [
+    mkLayer({ name: "t", type: TextLayer, text: "이전 텍스트" }),
+    mkLayer({ name: "i.png", source: mkFootage({ name: "i.png" }) }) ] });
+  songs.push(c);
+  main._layers.push(mkLayer({ name: c.name, source: c,
+    start: 3200 + z * 30, span: extraOff ? 400 : 25, enabled: !extraOff }));
+}
+
 const items = [main, intro, ...songs];
 
 globalThis.app = { project: { numItems: items.length, item: (i) => items[i - 1] },

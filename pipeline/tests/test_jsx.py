@@ -376,3 +376,87 @@ class TestSwapImagesScript(unittest.TestCase):
     def test_status_line_reports_both_counts(self):
         self.assertIn("13개", self.result["status"])
         self.assertIn("13장", self.result["status"])
+
+
+@unittest.skipUnless(NODE, "node 가 없어 ExtendScript 검증을 건너뜁니다")
+class TestFitFromTracklist(unittest.TestCase):
+    """메모장 트랙리스트로 곡 컴프를 배치하고 제목을 바꾸는 스크립트.
+
+    지난 회차 배치가 남아 있는 상태에서 이번 회차 트랙리스트를 먹인다.
+    """
+
+    TRACKLIST = """# EP08 트랙리스트
+0:00 First thing
+3:14 South side
+6:52 All week
+10:31 In the meantime
+13:47 Hand me that
+17:02 Slow money
+20:15 Fine, then
+23:30 Back seat
+25:58 The quiet part
+27:12 Nothing to fix
+28:04 Morning after all
+28:51 Warm front
+29:20 Leave the light
+"""
+    AUDIO_END = 1774.0
+
+    @classmethod
+    def setUpClass(cls):
+        import tempfile
+
+        cls.tmp = Path(tempfile.mkdtemp()) / "tracklist.txt"
+        cls.tmp.write_text(cls.TRACKLIST, encoding="utf-8")
+        harness = ROOT / "tests" / "ae_mock" / "tracklist_harness.mjs"
+        proc = subprocess.run(
+            [NODE, str(harness), str(SCRIPTS / "fit_from_tracklist.jsx"),
+             str(cls.tmp)],
+            capture_output=True, text=True, errors="replace",
+        )
+        if proc.returncode != 0:
+            raise AssertionError(f"하네스 실행 실패:\n{proc.stderr[-3000:]}")
+        cls.result = json.loads(proc.stdout)
+        cls.fps = cls.result["fps"]
+        cls.songs = [a for a in cls.result["applied"] if a["comp"] != "Intro"]
+
+    def test_every_song_gets_its_title(self):
+        titles = [a["title"] for a in self.songs]
+        self.assertEqual(titles[0], "First thing")
+        self.assertEqual(titles[-1], "Leave the light")
+        self.assertEqual(len(titles), 13)
+        self.assertFalse([t for t in titles if t and t.startswith("지난회차")])
+
+    def test_comment_line_is_skipped(self):
+        # "# EP08 트랙리스트" 가 첫 곡으로 잡히면 전부 한 칸씩 밀린다.
+        self.assertEqual(self.songs[0]["title"], "First thing")
+
+    def test_starts_come_from_the_tracklist(self):
+        self.assertAlmostEqual(self.songs[0]["start"], 0.0, places=3)
+        # 3:14 = 194초, 프레임 경계로 올림된 값
+        self.assertAlmostEqual(self.songs[1]["start"], 194.0, delta=1 / self.fps)
+
+    def test_every_placement_lands_on_a_frame(self):
+        for song in self.songs:
+            for value in (song["start"], song["out"]):
+                frames = value * self.fps
+                self.assertAlmostEqual(frames, round(frames), places=6,
+                                       msg=f"{song['comp']} 이 프레임에 안 맞음")
+
+    def test_songs_are_contiguous(self):
+        for a, b in zip(self.songs, self.songs[1:]):
+            self.assertAlmostEqual(a["out"], b["start"], places=9)
+
+    def test_last_song_runs_to_the_end_of_the_audio(self):
+        # 오디오 길이까지 이어지되 프레임 경계로 올림된다.
+        self.assertGreaterEqual(self.songs[-1]["out"], self.AUDIO_END)
+        self.assertLess(self.songs[-1]["out"], self.AUDIO_END + 1 / self.fps)
+
+    def test_intro_is_left_alone(self):
+        intro = [a for a in self.result["applied"] if a["comp"] == "Intro"][0]
+        self.assertEqual(intro["start"], 0)
+        self.assertEqual(intro["out"], 11)
+
+    def test_status_names_the_audio_it_measured_against(self):
+        self.assertIn("ep08_full.wav", self.result["status"])
+        self.assertIn("13곡", self.result["status"])

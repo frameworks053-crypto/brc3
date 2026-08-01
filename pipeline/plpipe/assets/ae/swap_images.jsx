@@ -194,7 +194,7 @@
     };
 
     // ── 창 만들기 ───────────────────────────────────────────
-    var VERSION = "v2";   // 창 제목에 표시된다. 파일을 바꿨는지 확인용.
+    var VERSION = "v3";   // 창 제목에 표시된다. 파일을 바꿨는지 확인용.
     var win = new Window("dialog", "이미지 넣기  " + VERSION);
     win.orientation = "column";
     win.alignChildren = ["fill", "top"];
@@ -265,6 +265,7 @@
 
     function redraw(keepSelection) {
         var wanted = keepSelection || [];
+        state.settingSelection = true;
         list.removeAll();
         for (var i = 0; i < state.rows.length; i++) {
             var row = state.rows[i];
@@ -279,6 +280,7 @@
             if (wanted[j] < list.items.length) sel.push(list.items[wanted[j]]);
         }
         list.selection = sel;
+        state.settingSelection = false;
         refreshMapping();
     }
 
@@ -302,27 +304,55 @@
         applyBtn.enabled = chosen.length > 0 && state.images.length > 0;
     }
 
+    /* 폴더에 이미지가 몇 장인지는 확실한 정보다. 구조로 추측한 결과가
+       그 장수와 안 맞으면 장수를 더 믿는다. */
     function guessSelection() {
-        var i, out = [];
+        var i;
 
-        // 지난번에 "곡 아님" 으로 지정해 둔 컴프가 있으면 그걸 따른다.
+        /* 1순위: 지난번에 "곡 아님" 으로 지정해 둔 컴프. 이름으로 기억하므로
+           길이가 어떻든 정확히 그것만 빠진다. */
         var remembered = loadExcluded(), matched = 0;
         for (i = 0; i < state.rows.length; i++) {
             if (nameIn(remembered, state.rows[i].comp.name)) matched++;
         }
         if (matched) {
+            var kept0 = [];
             for (i = 0; i < state.rows.length; i++) {
-                if (!nameIn(remembered, state.rows[i].comp.name)) out.push(i);
+                if (!nameIn(remembered, state.rows[i].comp.name)) kept0.push(i);
             }
             state.usedMemory = true;
-            return out;
+            if (!state.images.length || kept0.length === state.images.length) {
+                return kept0;
+            }
         }
         state.usedMemory = false;
 
+        var guessed = [];
         for (i = 0; i < state.rows.length; i++) {
-            if (state.rows[i].isSong) out.push(i);
+            if (state.rows[i].isSong) guessed.push(i);
         }
-        return out;
+        var want = state.images.length;
+        if (!want || guessed.length === want) return guessed;
+
+        var total = state.rows.length, all = [], i2;
+        for (i2 = 0; i2 < total; i2++) all.push(i2);
+        if (total <= want) return all;           // 모자라면 전부 (개수 경고가 뜬다)
+
+        /* 남는 개수만큼 짧은 것부터 뺀다. 인트로·아웃트로·잔재는 곡보다
+           짧게 놓여 있기 때문이다. 꺼진 레이어는 무조건 먼저 뺀다. */
+        var order = [];
+        for (i2 = 0; i2 < total; i2++) order.push(i2);
+        order.sort(function (a, b) {
+            var ea = state.rows[a].enabled ? 1 : 0;
+            var eb = state.rows[b].enabled ? 1 : 0;
+            if (ea !== eb) return ea - eb;       // 꺼진 것 먼저
+            return state.rows[a].span - state.rows[b].span;
+        });
+        var dropped = {};
+        for (i2 = 0; i2 < total - want; i2++) dropped[order[i2]] = true;
+        var kept = [];
+        for (i2 = 0; i2 < total; i2++) if (!dropped[i2]) kept.push(i2);
+        return kept;
     }
 
     // ── 이벤트 ──────────────────────────────────────────────
@@ -340,17 +370,29 @@
             return (f instanceof File) && IMAGE_EXT.test(f.name);
         });
         state.images = sortImages(files);
-        refreshMapping();
+        /* 손대기 전이라면 장수를 알게 된 지금 다시 추천한다. */
+        if (state.touched) refreshMapping();
+        else redraw(guessSelection());
     };
 
-    list.onChange = refreshMapping;
+    list.onChange = function () {
+        if (!state.settingSelection) state.touched = true;
+        refreshMapping();
+    };
     selectAll.onClick = function () {
         var all = [];
         for (var i = 0; i < state.rows.length; i++) all.push(i);
+        state.touched = true;
         redraw(all);
     };
-    selectGuess.onClick = function () { redraw(guessSelection()); };
-    selectNone.onClick = function () { redraw([]); };
+    selectGuess.onClick = function () {
+        state.touched = false;
+        redraw(guessSelection());
+    };
+    selectNone.onClick = function () {
+        state.touched = true;
+        redraw([]);
+    };
 
     applyBtn.onClick = function () {
         var chosen = selectedIndexes();

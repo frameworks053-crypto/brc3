@@ -53,12 +53,21 @@ function mkFootage({ name, width = 2944, height = 1648, still = true }) {
 }
 
 // ── 시나리오: 인트로 1 + 곡 13 + 꺼진 잔재 1 ────────────────
+/* argv[4] = "long" 이면 인트로를 곡보다 길게 만든다. 길이로는 가려낼 수
+   없는 프로젝트라, 이름을 기억해 두는 경로만 정답을 낼 수 있다. */
+const introSpan = process.argv[4] === "long" ? 500 : 11;
 const songComps = [];
 const mainLayers = [];
 let t = 0;
-const intro = mkComp({ name: "Intro", layers: [
-  mkLayer({ name: "intro.png", source: mkFootage({ name: "intro.png" }) }) ] });
-mainLayers.push(mkLayer({ name: "Intro", source: intro, start: t, span: 11 })); t += 11;
+/* "long" 인트로는 곡 컴프를 복제해 만든 것이라 제목 텍스트까지 있다.
+   길이로도 제목 유무로도 곡과 구분되지 않는, 실제로 겪은 구성이다. */
+const introLayers = [mkLayer({ name: "intro.png", source: mkFootage({ name: "intro.png" }) })];
+if (introSpan > 100) {
+  introLayers.unshift(mkLayer({ name: "제목0", type: TextLayer, text: "Intro" }));
+}
+const intro = mkComp({ name: "Intro", layers: introLayers });
+mainLayers.push(mkLayer({ name: "Intro", source: intro, start: t, span: introSpan }));
+t += introSpan;
 for (let i = 1; i <= 13; i++) {
   const comp = mkComp({ name: i === 1 ? "Change - Things" : `Change - Things ${i}`,
     layers: [ mkLayer({ name: `제목${i}`, type: TextLayer, text: `Song ${i}` }),
@@ -150,4 +159,9 @@ const out = {
   })),
   status: reg.statictext[reg.statictext.length - 2].text,
 };
+
+// 적용까지 눌러 본다. 실제 교체 결과와, 다음 회차용으로 저장된 제외 목록.
+reg.buttons["적용"].onClick();
+out.applied = applied.map((pair) => ({ layer: pair[0], image: pair[1] }));
+out.saved = globalThis.__store["plpipe/notSongs"];
 process.stdout.write(JSON.stringify(out, null, 1));

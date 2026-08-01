@@ -326,6 +326,22 @@ if __name__ == "__main__":
     unittest.main(verbosity=2)
 
 
+def run_swap(remembered: str = "", intro: str = "") -> dict:
+    """이미지 교체 스크립트를 하네스로 돌린다.
+
+    remembered = 지난 회차에 "곡 아님" 으로 지정해 둔 컴프 이름들,
+    intro = "long" 이면 인트로가 곡보다 길고 제목 텍스트도 있는 구성.
+    """
+    harness = ROOT / "tests" / "ae_mock" / "swap_harness.mjs"
+    proc = subprocess.run(
+        [NODE, str(harness), str(SCRIPTS / "swap_images.jsx"), remembered, intro],
+        capture_output=True, text=True, errors="replace",
+    )
+    if proc.returncode != 0:
+        raise AssertionError(f"하네스 실행 실패:\n{proc.stderr[-3000:]}")
+    return json.loads(proc.stdout)
+
+
 @unittest.skipUnless(NODE, "node 가 없어 ExtendScript 검증을 건너뜁니다")
 class TestSwapImagesScript(unittest.TestCase):
     """AE 에서 바로 실행하는 이미지 교체 스크립트.
@@ -336,14 +352,7 @@ class TestSwapImagesScript(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        harness = ROOT / "tests" / "ae_mock" / "swap_harness.mjs"
-        proc = subprocess.run(
-            [NODE, str(harness), str(SCRIPTS / "swap_images.jsx")],
-            capture_output=True, text=True, errors="replace",
-        )
-        if proc.returncode != 0:
-            raise AssertionError(f"하네스 실행 실패:\n{proc.stderr[-3000:]}")
-        cls.result = json.loads(proc.stdout)
+        cls.result = run_swap()
         cls.rows = cls.result["rows"]
         cls.mapped = [r for r in cls.rows if r["image"]]
 
@@ -376,6 +385,42 @@ class TestSwapImagesScript(unittest.TestCase):
     def test_status_line_reports_both_counts(self):
         self.assertIn("13개", self.result["status"])
         self.assertIn("13장", self.result["status"])
+
+    def test_apply_remembers_the_comps_that_were_left_out(self):
+        # 다음 회차에는 인트로를 다시 골라내지 않아도 되도록 이름으로 저장한다.
+        self.assertEqual(self.result["saved"], "Intro\nChange - Things 20")
+
+
+@unittest.skipUnless(NODE, "node 가 없어 ExtendScript 검증을 건너뜁니다")
+class TestSwapImagesLongIntro(unittest.TestCase):
+    """인트로가 곡보다 길고 제목 텍스트까지 있는 프로젝트.
+
+    사용자의 실제 템플릿이 이렇다 (인트로가 곡 컴프의 복제본). 길이로도
+    제목 유무로도 구분되지 않으므로, 이름을 기억해 두는 것만이 정답을 낸다.
+    """
+
+    def test_without_memory_the_intro_steals_the_first_image(self):
+        rows = run_swap(intro="long")["rows"]
+        self.assertEqual(rows[0]["comp"], "Intro")
+        self.assertEqual(rows[0]["image"], "1-one.png")   # 잘못된 결과
+        # 그래도 개수는 이미지 장수에 맞춘다. 짝이 한 칸씩 밀리기만 하고
+        # 남는 컴프에 엉뚱한 이미지가 더 들어가지는 않는다.
+        self.assertEqual(sum(1 for r in rows if r["image"]), 13)
+
+    def test_memory_keeps_the_intro_out_and_shifts_every_image_back(self):
+        result = run_swap(remembered="Intro\nChange - Things 20", intro="long")
+        rows = result["rows"]
+        self.assertEqual(rows[0]["image"], "")
+        self.assertIn("기억", result["status"])
+        mapped = [(r["comp"], r["image"]) for r in rows if r["image"]]
+        self.assertEqual(len(mapped), 13)
+        self.assertEqual(mapped[0], ("Change - Things", "1-one.png"))
+        self.assertEqual(mapped[-1], ("Change - Things 13", "13-thirteen.png"))
+
+    def test_memory_survives_apply_unchanged(self):
+        result = run_swap(remembered="Intro\nChange - Things 20", intro="long")
+        self.assertEqual(result["saved"], "Intro\nChange - Things 20")
+        self.assertEqual(len(result["applied"]), 13)
 
 
 @unittest.skipUnless(NODE, "node 가 없어 ExtendScript 검증을 건너뜁니다")

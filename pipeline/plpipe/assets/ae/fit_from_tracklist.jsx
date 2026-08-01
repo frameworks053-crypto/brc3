@@ -200,6 +200,31 @@
         return rows;
     }
 
+    /* 곡이 아닌 컴프(인트로 등)를 AE 설정에 기억해 둔다. 프로젝트마다
+       인트로 이름이 다르고 길이로는 늘 가려낼 수 없으므로, 한 번 지정하면
+       다음 회차부터는 그대로 쓴다. */
+    var SETTINGS_SECTION = "plpipe";
+    var SETTINGS_KEY = "notSongs";
+
+    function loadExcluded() {
+        try {
+            if (!app.settings.haveSetting(SETTINGS_SECTION, SETTINGS_KEY)) return [];
+            var raw = app.settings.getSetting(SETTINGS_SECTION, SETTINGS_KEY);
+            return raw ? raw.split("\n") : [];
+        } catch (e) { return []; }
+    }
+
+    function saveExcluded(names) {
+        try {
+            app.settings.saveSetting(SETTINGS_SECTION, SETTINGS_KEY, names.join("\n"));
+        } catch (e) {}
+    }
+
+    function nameIn(list, name) {
+        for (var i = 0; i < list.length; i++) if (list[i] === name) return true;
+        return false;
+    }
+
     /* 마지막 곡이 어디서 끝나는지는 메인의 오디오 길이로 정한다. */
     function audioEnd(main) {
         for (var i = 1; i <= main.layers.length; i++) {
@@ -223,7 +248,7 @@
     var state = { main: mainGuess, rows: markSongs(slotsOf(mainGuess)), tracks: [] };
 
     // ── 창 ──────────────────────────────────────────────────
-    var VERSION = "v3";   // 창 제목에 표시된다. 파일을 바꿨는지 바로 확인용.
+    var VERSION = "v4";   // 창 제목에 표시된다. 파일을 바꿨는지 바로 확인용.
     var win = new Window("dialog", "트랙리스트로 맞추기  " + VERSION);
     win.orientation = "column";
     win.alignChildren = ["fill", "top"];
@@ -360,6 +385,7 @@
         var lines = "선택한 컴프 " + chosen.length + "개 / 전체 "
                     + state.rows.length + "개 · 트랙리스트 "
                     + state.tracks.length + "곡";
+        if (state.usedMemory) lines += "   (지난번 제외 설정을 기억했습니다)";
         if (state.tracks.length && chosen.length !== state.tracks.length) {
             lines += "   ← 개수가 다릅니다";
         }
@@ -385,7 +411,27 @@
        지난 회차 배치가 남아 있으면 길이가 제각각이라 추측이 잘 빗나가는데,
        메모장에 몇 곡인지는 분명히 적혀 있기 때문이다. */
     function guessSelection() {
-        var guessed = [], i;
+        var i;
+
+        /* 1순위: 지난번에 "곡 아님" 으로 지정해 둔 컴프. 이름으로 기억하므로
+           길이가 어떻든 정확히 그것만 빠진다. */
+        var remembered = loadExcluded(), matched = 0;
+        for (i = 0; i < state.rows.length; i++) {
+            if (nameIn(remembered, state.rows[i].comp.name)) matched++;
+        }
+        if (matched) {
+            var kept0 = [];
+            for (i = 0; i < state.rows.length; i++) {
+                if (!nameIn(remembered, state.rows[i].comp.name)) kept0.push(i);
+            }
+            state.usedMemory = true;
+            if (!state.tracks.length || kept0.length === state.tracks.length) {
+                return kept0;
+            }
+        }
+        state.usedMemory = false;
+
+        var guessed = [];
         for (i = 0; i < state.rows.length; i++) {
             if (state.rows[i].isSong) guessed.push(i);
         }
@@ -453,6 +499,16 @@
             if (!confirm("트랙리스트가 모자라 앞에서부터 " + laid.items.length
                          + "곡만 처리합니다.\n계속할까요?")) return;
         }
+
+        /* 이번에 곡이 아니라고 본 컴프를 기억해 둔다. 다음 회차에는
+           길이로 추측하지 않고 이 목록을 그대로 쓴다. */
+        var excludedNames = [];
+        for (var x = 0; x < state.rows.length; x++) {
+            var inSel = false;
+            for (var y = 0; y < chosen.length; y++) if (chosen[y] === x) inSel = true;
+            if (!inSel) excludedNames.push(state.rows[x].comp.name);
+        }
+        saveExcluded(excludedNames);
 
         app.beginUndoGroup("트랙리스트로 맞추기");
         var moved = 0, renamed = 0, skipped = [];

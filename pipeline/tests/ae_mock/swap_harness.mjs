@@ -75,11 +75,19 @@ const main = mkComp({ name: "Main", layers: [
   mkLayer({ name: "LOGO.png", source: mkFootage({ name: "LOGO.png" }) }), ...mainLayers ] });
 const items = [main, intro, ...songComps, stale];
 
+const store = {};
+if (process.argv[3]) store["plpipe/notSongs"] = process.argv[3];
 globalThis.app = {
   project: { numItems: items.length, item: (i) => items[i - 1],
              importFile: (o) => mkFootage({ name: o.file.name }) },
   beginUndoGroup() {}, endUndoGroup() {},
+  settings: {
+    haveSetting: (sec, key) => (sec + "/" + key) in store,
+    getSetting: (sec, key) => store[sec + "/" + key] || "",
+    saveSetting: (sec, key, val) => { store[sec + "/" + key] = val; },
+  },
 };
+globalThis.__store = store;
 
 // ── UI 목업 ────────────────────────────────────────────────
 const reg = { buttons: {}, listbox: null, checkbox: {}, statictext: [] };

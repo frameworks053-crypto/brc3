@@ -421,16 +421,14 @@ all music & artwork created by warm tape society
     ]
 
     @classmethod
-    def run_script(cls, extra=0, kind=""):
+    def run_script(cls, extra=0, kind="", remembered="", intro=""):
         import tempfile
 
         tmp = Path(tempfile.mkdtemp()) / "description_draft.txt"
         tmp.write_text(cls.TRACKLIST, encoding="utf-8")
         harness = ROOT / "tests" / "ae_mock" / "tracklist_harness.mjs"
         argv = [NODE, str(harness), str(SCRIPTS / "fit_from_tracklist.jsx"),
-                str(tmp), str(extra)]
-        if kind:
-            argv.append(kind)
+                str(tmp), str(extra), kind, remembered, intro]
         proc = subprocess.run(argv, capture_output=True, text=True,
                               errors="replace")
         if proc.returncode != 0:
@@ -526,3 +524,27 @@ all music & artwork created by warm tape society
         self.assertEqual(len(titled), 13)
         self.assertFalse([a["comp"] for a in titled
                           if a["comp"].startswith("잔재")])
+
+    def test_length_alone_fails_when_the_intro_is_long(self):
+        """인트로가 곡보다 길면 길이로는 가려낼 수 없다.
+
+        이름을 기억하는 기능이 왜 필요한지 보여주는 경우.
+        """
+        result = self.run_script(intro="long")
+        self.assertEqual(len(self._titled(result)), 12)   # 하나 부족
+
+    def test_remembered_exclusion_wins_over_length(self):
+        result = self.run_script(remembered="Intro", intro="long")
+        titled = self._titled(result)
+        self.assertEqual(len(titled), 13)
+        self.assertNotIn("Intro", [a["comp"] for a in titled])
+        self.assertIn("기억", result["status"])
+
+    def test_exclusion_is_saved_for_next_time(self):
+        # 이번에 뺀 컴프를 저장해 둬야 다음 회차에 다시 고르지 않는다.
+        result = self.run_script()
+        self.assertEqual(result["saved"], "Intro")
+
+    def test_remembered_names_that_no_longer_exist_are_ignored(self):
+        result = self.run_script(remembered="없어진 컴프")
+        self.assertEqual(len(self._titled(result)), 13)

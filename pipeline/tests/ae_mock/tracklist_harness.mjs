@@ -52,8 +52,11 @@ const songs = [], mainLayers = [];
 let t = 0;
 const intro = mkComp({ name: "Intro",
   layers: [mkLayer({ name: "intro.png", source: mkFootage({ name: "intro.png" }) })] });
-mainLayers.push(mkLayer({ name: "Intro", source: intro, start: 0, span: 11 }));
-t = 11;
+/* argv[7] = "long" 이면 인트로를 곡보다 길게 만든다. 길이로는 못 가려내는
+   상황이라, 이름을 기억하는 기능이 필요한 경우다. */
+const introSpan = process.argv[7] === "long" ? 500 : 11;
+mainLayers.push(mkLayer({ name: "Intro", source: intro, start: 0, span: introSpan }));
+t = introSpan;
 // 지난 회차 배치라 곡 길이가 제각각이다 (추측이 빗나가기 쉬운 상태)
 const STALE = [402, 118, 355, 96, 289, 141, 388, 102, 331, 155, 377, 88, 344];
 for (let i = 1; i <= 13; i++) {
@@ -84,8 +87,19 @@ for (let z = 0; z < extraCount; z++) {
 
 const items = [main, intro, ...songs];
 
-globalThis.app = { project: { numItems: items.length, item: (i) => items[i - 1] },
-                   beginUndoGroup() {}, endUndoGroup() {} };
+// AE 설정 저장소 목업. argv[6] 으로 "지난번에 기억해 둔" 값을 넣을 수 있다.
+const store = {};
+if (process.argv[6]) store["plpipe/notSongs"] = process.argv[6];
+globalThis.app = {
+  project: { numItems: items.length, item: (i) => items[i - 1] },
+  beginUndoGroup() {}, endUndoGroup() {},
+  settings: {
+    haveSetting: (sec, key) => (sec + "/" + key) in store,
+    getSetting: (sec, key) => store[sec + "/" + key] || "",
+    saveSetting: (sec, key, val) => { store[sec + "/" + key] = val; },
+  },
+};
+globalThis.__store = store;
 
 // ── UI + 파일 목업 ─────────────────────────────────────────
 const reg = { buttons: {}, checkbox: {}, listbox: null, statictext: [] };
@@ -150,4 +164,5 @@ process.stdout.write(JSON.stringify({
     title: l.source._layers.filter((x) => x._doc.text !== null)
              .map((x) => x._doc.text)[0] ?? null })),
   alerts: globalThis.__alerts, fps: FPS,
+  saved: globalThis.__store["plpipe/notSongs"],
 }, null, 1));

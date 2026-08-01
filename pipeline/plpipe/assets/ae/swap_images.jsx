@@ -151,6 +151,30 @@
         return rows;
     }
 
+    /* 곡이 아닌 컴프(인트로 등)를 AE 설정에 기억해 둔다. 트랙리스트
+       스크립트와 같은 저장소를 쓰므로 한쪽에서 지정하면 양쪽에 적용된다. */
+    var SETTINGS_SECTION = "plpipe";
+    var SETTINGS_KEY = "notSongs";
+
+    function loadExcluded() {
+        try {
+            if (!app.settings.haveSetting(SETTINGS_SECTION, SETTINGS_KEY)) return [];
+            var raw = app.settings.getSetting(SETTINGS_SECTION, SETTINGS_KEY);
+            return raw ? raw.split("\n") : [];
+        } catch (e) { return []; }
+    }
+
+    function saveExcluded(names) {
+        try {
+            app.settings.saveSetting(SETTINGS_SECTION, SETTINGS_KEY, names.join("\n"));
+        } catch (e) {}
+    }
+
+    function nameIn(list, name) {
+        for (var i = 0; i < list.length; i++) if (list[i] === name) return true;
+        return false;
+    }
+
     // ── 시작 ────────────────────────────────────────────────
     if (!app.project || app.project.numItems === 0) {
         alert("먼저 After Effects 에서 프로젝트를 열어 주세요.");
@@ -170,7 +194,8 @@
     };
 
     // ── 창 만들기 ───────────────────────────────────────────
-    var win = new Window("dialog", "이미지 넣기");
+    var VERSION = "v2";   // 창 제목에 표시된다. 파일을 바꿨는지 확인용.
+    var win = new Window("dialog", "이미지 넣기  " + VERSION);
     win.orientation = "column";
     win.alignChildren = ["fill", "top"];
     win.preferredSize = [720, 560];
@@ -267,7 +292,9 @@
             list.items[chosen[n]].subItems[2].text =
                 file ? decodeURI(file.displayName || file.name) : "(이미지 부족)";
         }
-        var msg = "선택한 컴프 " + chosen.length + "개 · 이미지 " + state.images.length + "장";
+        var msg = "선택한 컴프 " + chosen.length + "개 / 전체 "
+                  + state.rows.length + "개 · 이미지 " + state.images.length + "장";
+        if (state.usedMemory) msg += "   (지난번 제외 설정을 기억했습니다)";
         if (state.images.length && chosen.length !== state.images.length) {
             msg += "   ← 개수가 다릅니다";
         }
@@ -276,8 +303,23 @@
     }
 
     function guessSelection() {
-        var out = [];
-        for (var i = 0; i < state.rows.length; i++) {
+        var i, out = [];
+
+        // 지난번에 "곡 아님" 으로 지정해 둔 컴프가 있으면 그걸 따른다.
+        var remembered = loadExcluded(), matched = 0;
+        for (i = 0; i < state.rows.length; i++) {
+            if (nameIn(remembered, state.rows[i].comp.name)) matched++;
+        }
+        if (matched) {
+            for (i = 0; i < state.rows.length; i++) {
+                if (!nameIn(remembered, state.rows[i].comp.name)) out.push(i);
+            }
+            state.usedMemory = true;
+            return out;
+        }
+        state.usedMemory = false;
+
+        for (i = 0; i < state.rows.length; i++) {
             if (state.rows[i].isSong) out.push(i);
         }
         return out;
@@ -318,6 +360,15 @@
                          + "앞에서부터 " + state.images.length
                          + "개만 바꿀까요?")) return;
         }
+
+        // 이번에 곡이 아니라고 본 컴프를 기억해 둔다.
+        var excludedNames = [];
+        for (var x = 0; x < state.rows.length; x++) {
+            var inSel = false;
+            for (var y = 0; y < chosen.length; y++) if (chosen[y] === x) inSel = true;
+            if (!inSel) excludedNames.push(state.rows[x].comp.name);
+        }
+        saveExcluded(excludedNames);
 
         app.beginUndoGroup("이미지 넣기");
         var done = 0, failed = [];

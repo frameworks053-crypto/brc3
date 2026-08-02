@@ -90,8 +90,12 @@ const intro = mkComp({ name: "Intro",
 /* argv[7] = "long" 이면 인트로를 곡보다 길게 만든다. 길이로는 못 가려내는
    상황이라, 이름을 기억하는 기능이 필요한 경우다. */
 const introSpan = process.argv[7] === "long" ? 500 : 11;
-mainLayers.push(mkLayer({ name: "Intro", source: intro, start: 0, span: introSpan }));
-t = introSpan;
+/* argv[7] = "drop" 이면 인트로를 타임라인에서 뺀 구성. */
+const dropIntro = process.argv[7] === "drop";
+if (!dropIntro) {
+  mainLayers.push(mkLayer({ name: "Intro", source: intro, start: 0, span: introSpan }));
+  t = introSpan;
+}
 // 지난 회차 배치라 곡 길이가 제각각이다 (추측이 빗나가기 쉬운 상태)
 const STALE = [402, 118, 355, 96, 289, 141, 388, 102, 331, 155, 377, 88, 344];
 for (let i = 1; i <= 13; i++) {

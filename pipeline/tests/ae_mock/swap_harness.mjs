@@ -84,7 +84,8 @@ function mkFootage({ name, width = 2944, height = 1648, still = true }) {
    "preshrunk" 지난 회차에 줄여 둔 제목으로 시작
    "shuffle"   이미지 섞기 버튼을 눌러 본다
    "reorder"   섞은 뒤 "원래 순서" 로 되돌린다
-   "nointro"   인트로에 1번 이미지 넣기를 끈다 */
+   "nointro"   인트로에 1번 이미지 넣기를 끈다
+   "dropintro" 인트로를 타임라인에서 아예 뺀다 */
 const flags = new Set(process.argv.slice(4));
 const introSpan = flags.has("long") ? 500 : 11;
 const songComps = [];
@@ -99,8 +100,11 @@ if (introSpan > 100) {
   introLayers.unshift(title("제목0", "Intro"));
 }
 const intro = mkComp({ name: "Intro", layers: introLayers });
-mainLayers.push(mkLayer({ name: "Intro", source: intro, start: t, span: introSpan }));
-t += introSpan;
+/* "dropintro" 면 인트로를 타임라인에서 뺀 구성 — 인트로를 없애기로 한 회차. */
+if (!flags.has("dropintro")) {
+  mainLayers.push(mkLayer({ name: "Intro", source: intro, start: t, span: introSpan }));
+  t += introSpan;
+}
 /* "preshrunk" 면 지난 회차에 줄여 둔 상태로 시작한다. 코멘트에 원래 크기가
    적혀 있으므로, 짧은 제목이 오면 그 크기로 돌아가야 한다. */
 const preshrunk = flags.has("preshrunk");

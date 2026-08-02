@@ -448,6 +448,35 @@ class TestSwapImagesShuffle(unittest.TestCase):
 
 
 @unittest.skipUnless(NODE, "node 가 없어 ExtendScript 검증을 건너뜁니다")
+class TestSwapImagesWithoutIntro(unittest.TestCase):
+    """인트로를 아예 없앤 회차. 스크립트를 그대로 써도 되는지 확인한다.
+
+    지난 회차에 기억해 둔 "Intro" 가 설정에 남아 있는 상태에서 시작한다.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.result = run_swap("Intro\nChange - Things 20", "dropintro")
+        cls.rows = cls.result["rows"]
+
+    def test_all_thirteen_songs_still_get_their_own_image(self):
+        mapped = [(r["comp"], r["image"]) for r in song_images(self.rows)]
+        self.assertEqual(len(mapped), 13)
+        self.assertEqual(mapped[0], ("Change - Things", "1-one.png"))
+        self.assertEqual(mapped[-1], ("Change - Things 13", "13-thirteen.png"))
+
+    def test_intro_option_finds_nothing_and_stays_quiet(self):
+        # 인트로가 없으면 켜져 있어도 아무 일도 하지 않는다. 꺼진 잔재
+        # 컴프에 1번 이미지가 잘못 들어가서는 안 된다.
+        self.assertEqual(len(self.result["applied"]), 13)
+        self.assertNotIn("인트로", self.result["alert"])
+
+    def test_stale_memory_of_a_gone_comp_is_harmless(self):
+        # 없어진 이름은 무시하고, 적용하면서 목록도 정리된다.
+        self.assertEqual(self.result["saved"], "Change - Things 20")
+
+
+@unittest.skipUnless(NODE, "node 가 없어 ExtendScript 검증을 건너뜁니다")
 class TestSwapImagesLongIntro(unittest.TestCase):
     """인트로가 곡보다 길고 제목 텍스트까지 있는 프로젝트.
 
@@ -710,3 +739,33 @@ class TestTitleShrinking(unittest.TestCase):
         sizes = self.sizes(self.run_it(sizes="preshrunk"))
         self.assertEqual(sizes["Short One"], 180)
         self.assertLess(sizes[self.LONG], 180)
+
+
+@unittest.skipUnless(NODE, "node 가 없어 ExtendScript 검증을 건너뜁니다")
+class TestFitFromTracklistWithoutIntro(unittest.TestCase):
+    """인트로를 아예 없앤 회차. 첫 곡이 0:00 에 붙어야 한다."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.result = TestFitFromTracklist.run_script(remembered="Intro",
+                                                     intro="drop")
+        cls.applied = cls.result["applied"]
+
+    def test_first_song_starts_at_zero_with_no_gap(self):
+        self.assertEqual(self.applied[0]["start"], 0.0)
+        self.assertEqual(self.applied[0]["title"], "Nothing to Report")
+
+    def test_all_thirteen_songs_are_placed(self):
+        self.assertEqual(len(self.applied), 13)
+        self.assertEqual(self.applied[-1]["title"], "Anytime You Want")
+        self.assertAlmostEqual(self.applied[-1]["out"],
+                               TestFitFromTracklist.AUDIO_END, places=1)
+
+    def test_songs_are_contiguous(self):
+        # 곡 사이에 빈틈이 생기면 그 구간이 배경만 보인다.
+        for before, after in zip(self.applied, self.applied[1:]):
+            self.assertEqual(before["out"], after["start"])
+
+    def test_stale_memory_of_a_gone_comp_is_harmless(self):
+        self.assertEqual(self.result["saved"], "")
+        self.assertNotIn("기억", self.result["status"])
